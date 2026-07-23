@@ -1,0 +1,1436 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Rocket Queen Analys Exact</title>
+<style>
+  :root{
+    --primary:#367de7; --primary-dark:#2252a3;
+    --good:#10b981; --bad:#ef4444;
+    --bg:#0f1525; --ink:#e5e7eb;
+    --panel:rgba(255,255,255,.08); --panel-bd:rgba(255,255,255,.18);
+    --chipA:#3b1ba8; --chipB:#5e43d3; --chipTxt:#e6e8ff;
+    --chipOk:#f4a51c; --chipOkTxt:#1b1405;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    min-height:100vh; display:flex; align-items:center; justify-content:center;
+    background:#0f1525; color:#fff;
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Inter,Arial,sans-serif;
+    padding:24px;
+  }
+  .wrap{display:flex;flex-direction:column;align-items:center;gap:18px;max-width:720px;width:100%; position:relative}
+
+  /* === TOP BAR (logo + buttons) === */
+  .topbar{width:100%; max-width:720px; position:relative; display:flex; justify-content:center; align-items:center; padding-top:6px}
+  h1{font-weight:800;letter-spacing:2px}
+  .lucky{opacity:.9} .jet{color:var(--primary)}
+
+  .icon-btn{
+    position:absolute; top:-2px; width:42px; height:42px; border-radius:12px;
+    background:#221d3b; border:1px solid rgba(255,255,255,.12);
+    box-shadow: inset 0 0 0 2px rgba(0,0,0,.25), 0 6px 16px rgba(0,0,0,.35);
+    display:grid; place-items:center; cursor:pointer; transition:transform .1s ease, filter .15s ease;
+  }
+  .icon-btn:active{transform:translateY(1px) scale(.98)}
+  .icon-btn svg{width:22px; height:22px; opacity:.9}
+  #openSettings{left:0}
+  #openHistory{right:0}
+
+  /* ========= ANIMATED CIRCLE ========= */
+  .circle{
+    width:190px;height:190px;border-radius:50%;
+    position:relative; display:flex;align-items:center;justify-content:center;
+    background: radial-gradient(closest-side, #0a1022 0%, #111a35 80%, #091026 100%);
+    box-shadow: 0 10px 30px rgba(0,0,0,.45), inset 0 0 26px rgba(54,125,231,.25);
+    overflow:hidden; animation: glow 3.2s ease-in-out infinite;
+  }
+  .ring{position:absolute; inset:8px; border-radius:50%; border:3px solid rgba(255,255,255,.12); pointer-events:none;}
+  .ring-spin{
+    position:absolute; inset:-2px; border-radius:50%;
+    background:conic-gradient(from 0deg, rgba(54,125,231,.0) 0%, rgba(54,125,231,.45) 20%, rgba(54,125,231,.0) 40%, rgba(54,125,231,.0) 100%);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(50% - 5px), #000 calc(50% - 4px));
+    mask: radial-gradient(farthest-side, transparent calc(50% - 5px), #000 calc(50% - 4px));
+    animation: spin 8s linear infinite; filter: drop-shadow(0 0 10px rgba(54,125,231,.35));
+  }
+  .orb{position:absolute; width:6px; height:6px; border-radius:50%; background:#7aa7ff; opacity:.85; filter:blur(.2px); animation: orbit 6s linear infinite; transform-origin: 95px 95px;}
+  .orb.o2{animation-duration:7.5s; opacity:.6}
+  .orb.o3{animation-duration:9s; opacity:.5}
+  #multiplier{font-size:20px;font-weight:800;text-align:center;line-height:1.35; padding:0 8px; color:#00ff66; text-shadow:0 0 14px rgba(0,255,102,.35); z-index:1;}
+  .circle.verifying{ animation-duration:2.2s }
+  .circle.ok{ box-shadow: 0 10px 30px rgba(0,0,0,.45), inset 0 0 30px rgba(16,185,129,.45); }
+  .circle.ko{ box-shadow: 0 10px 30px rgba(0,0,0,.45), inset 0 0 30px rgba(239,68,68,.45); }
+  .ring-spin.ok{ background: conic-gradient(from 0deg, rgba(16,185,129,.0) 0%, rgba(16,185,129,.55) 25%, rgba(16,185,129,.0) 50%) }
+  .ring-spin.ko{ background: conic-gradient(from 0deg, rgba(239,68,68,.0) 0%, rgba(239,68,68,.55) 25%, rgba(239,68,68,.0) 50%) }
+  @keyframes spin{ to{ transform: rotate(360deg) } }
+  @keyframes glow{ 0%,100%{ box-shadow: inset 0 0 22px rgba(54,125,231,.25), 0 10px 30px rgba(0,0,0,.45) } 50%{ box-shadow: inset 0 0 34px rgba(54,125,231,.45), 0 10px 30px rgba(0,0,0,.45) } }
+  @keyframes orbit{ from{ transform: rotate(0deg) translateX(78px) rotate(0deg) } to{ transform: rotate(360deg) translateX(78px) rotate(-360deg) } }
+/* ========= META ROWS ========= */
+  .meta{width:100%; max-width:560px; display:grid; grid-template-columns:repeat(3,1fr); gap:12px; align-items:stretch;}
+  .cell{background:var(--panel); border:1px solid var(--panel-bd); border-radius:10px; padding:8px 10px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;}
+  .title{font-size:12px; opacity:.85}
+  .value{font-size:16px; font-weight:800}
+
+  button{
+    background:linear-gradient(135deg,var(--primary),var(--primary-dark)); border:none; color:white;font-weight:800;letter-spacing:.8px;border-radius:5px;width:220px;height:50px;
+    cursor:pointer; box-shadow:0 10px 24px rgba(54,125,231,.35); transition:transform .15s ease, opacity .15s ease;
+  }
+  button:active{transform:translateY(1px) scale(.99)}
+  button:disabled{opacity:.55;cursor:not-allowed}
+
+  .status{min-height:22px;font-size:14px;opacity:.95;text-align:center}
+  .ok{color:var(--good)} .ko{color:var(--bad)}
+  .api-ok{color:var(--good)}
+  .api-ko{color:var(--bad)}
+  .api-wait{color:#f4a51c}
+  .analysis-window{
+    width:100%; max-width:560px; background:rgba(255,255,255,.08);
+    border:1px solid rgba(255,255,255,.18); border-radius:10px;
+    padding:10px 12px; display:flex; flex-direction:column; gap:6px;
+  }
+  .analysis-title{font-size:12px; font-weight:900; letter-spacing:.8px; opacity:.85}
+  .analysis-reason{font-size:13px; font-weight:800; line-height:1.35}
+  .analysis-reason.ok{color:var(--good)}
+  .analysis-reason.ko{color:var(--bad)}
+  .analysis-stats{font-size:12px; opacity:.85; line-height:1.35}
+
+  /* ========= PANEL (reused for history and settings) ========= */
+  .panel{
+    position:fixed; right:18px; top:18px; left:18px; max-width:880px; margin:0 auto;
+    background:#201a3a; border:1px solid rgba(255,255,255,.12); border-radius:16px;
+    box-shadow:0 18px 50px rgba(0,0,0,.55);
+    transform:translateY(-20px) scale(.98); opacity:0; pointer-events:none;
+    transition:transform .18s ease, opacity .18s ease;
+    z-index:50;
+  }
+  .panel.open{ transform:translateY(0) scale(1); opacity:1; pointer-events:auto; }
+  .panel-header{display:flex; align-items:center; gap:10px; padding:16px 18px 8px;}
+  .panel-header .ttl{font-size:20px; font-weight:900; letter-spacing:.5px}
+  .square{width:30px; height:30px; border-radius:10px; background:#2b2350; display:grid; place-items:center; border:1px solid rgba(255,255,255,.12);}
+  .panel-close{ margin-left:auto; width:38px; height:38px; border-radius:12px; background:#241f38; border:1px solid rgba(255,255,255,.14); display:grid; place-items:center; cursor:pointer; box-shadow: inset 0 0 0 2px rgba(0,0,0,.25);}
+  .panel-close i{ width:18px; height:18px; position:relative; display:block;}
+  .panel-close i::before,.panel-close i::after{content:""; position:absolute; left:50%; top:50%; width:20px; height:2.5px; background:#f4a51c; transform-origin:center; border-radius:2px;}
+  .panel-close i::before{ transform:translate(-50%,-50%) rotate(45deg); }
+  .panel-close i::after{ transform:translate(-50%,-50%) rotate(-45deg); }
+  .panel-body{ padding:10px 16px 18px; }
+
+  /* === History === */
+  .chips{ display:grid; grid-template-columns: repeat(auto-fill, minmax(88px,1fr)); gap:10px; }
+  .chip{ padding:10px 12px; text-align:center; font-weight:800; border-radius:12px;
+    background:linear-gradient(180deg,var(--chipA),var(--chipB)); color:var(--chipTxt);
+    border:1px solid rgba(255,255,255,.12); box-shadow:0 6px 16px rgba(0,0,0,.35);
+    user-select:none; white-space:nowrap;}
+  .chip.ok{ background:linear-gradient(180deg,#f8be45,#e99709); color:var(--chipOkTxt); }
+  .chip.ko{ background:linear-gradient(180deg,#3a2e5f,#4b3c7e); color:#e7e7ff; opacity:.9; }
+  .chip small{ display:block; font-size:11px; font-weight:600; opacity:.9; margin-top:2px }
+/* === Settings === */
+  .grid{ display:grid; grid-template-columns: repeat(2,1fr); gap:12px; }
+  .field{ background:var(--panel); border:1px solid var(--panel-bd); border-radius:10px; padding:10px 12px; }
+  .label{ font-size:12px; opacity:.85; margin-bottom:6px }
+  .controls{ display:flex; gap:8px; align-items:center }
+  .controls input{
+    flex:1; background:#2a2349; color:#fff; border:1px solid rgba(255,255,255,.15);
+    border-radius:8px; height:40px; padding:0 10px; font-weight:700; text-align:center;
+  }
+  .actions{ display:flex; flex-wrap:wrap; gap:10px; margin-top:12px }
+  .history-tools{ display:flex; gap:10px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
+  .history-tools select{
+    background:#2a2349; color:#fff; border:1px solid rgba(255,255,255,.15);
+    border-radius:8px; height:38px; padding:0 10px; font-weight:800;
+  }
+  .btn-secondary{
+    background:#2a2349; border:1px solid rgba(255,255,255,.18); color:#e9e9ff;
+    border-radius:8px; padding:10px 14px; font-weight:800; cursor:pointer;
+  }
+  .danger{ background:#3a2130; border-color:#c43d5d; color:#ffd7df }
+  .hint{ font-size:12px; opacity:.85; margin-top:6px }
+  @media (max-width:520px){ .grid{grid-template-columns:1fr} }
+
+  /* === EXTRA: Auto button styles (red OFF / green ON) === */
+  #autoButton{
+    background:linear-gradient(135deg,#ef4444,#b91c1c);
+    border:none; color:white; font-weight:800; letter-spacing:.8px; border-radius:5px; width:220px; height:50px;
+    cursor:pointer; box-shadow:0 10px 24px rgba(239,68,68,.35); transition:transform .15s ease, opacity .15s ease, filter .15s ease;
+  }
+  #autoButton.on{
+    background:linear-gradient(135deg,#10b981,#065f46);
+    box-shadow:0 10px 24px rgba(16,185,129,.35);
+  }
+  #grandButton{
+    background:linear-gradient(135deg,#f4a51c,#b56a06);
+    box-shadow:0 10px 24px rgba(244,165,28,.32);
+  }
+  #trainedButton{
+    background:linear-gradient(135deg,#14b8a6,#0f766e);
+    box-shadow:0 10px 24px rgba(20,184,166,.30);
+  }
+  #exportCsv{
+    background:linear-gradient(135deg,#64748b,#334155);
+    box-shadow:0 10px 24px rgba(100,116,139,.28);
+  }
+  .controls select{
+    flex:1; background:#2a2349; color:#fff; border:1px solid rgba(255,255,255,.15);
+    border-radius:8px; height:40px; padding:0 10px; font-weight:700; text-align:center;
+  }
+  /* Rocket Queen game-inspired skin */
+  :root{--primary:#bd2cff;--primary-dark:#ff3f91;--panel:rgba(54,17,86,.74);--panel-bd:rgba(255,151,221,.34);--chipA:#7024c4;--chipB:#d72f9f;--chipTxt:#fff7ff;--chipOk:#ff9b36;--chipOkTxt:#2c092b}
+  body{background:radial-gradient(circle at 78% 12%,rgba(255,147,55,.72) 0,rgba(255,68,150,.34) 23%,transparent 48%),radial-gradient(circle at 16% 24%,rgba(159,43,255,.75),transparent 46%),linear-gradient(155deg,#26004b 0%,#720095 46%,#e83186 100%);background-attachment:fixed;overflow-x:hidden}
+  body::before{content:"";position:fixed;inset:0;pointer-events:none;background:linear-gradient(115deg,transparent 0 54%,rgba(255,201,94,.12) 54% 56%,transparent 56% 100%);filter:blur(1px)}
+  .wrap{z-index:1}
+  h1{font-size:clamp(23px,7vw,38px);font-style:italic;text-shadow:0 4px 18px rgba(50,0,72,.75)}
+  h1 .lucky{color:#fff;opacity:1} h1 .jet{color:#ffd253;text-shadow:0 0 18px rgba(255,146,43,.82)}
+  .icon-btn{background:linear-gradient(145deg,rgba(83,20,128,.95),rgba(220,38,147,.9));border-color:rgba(255,205,244,.38)}
+  .circle{background:radial-gradient(circle at 55% 56%,#24103f 0 38%,#5a147e 66%,#d73398 100%);box-shadow:0 18px 42px rgba(45,0,61,.58),inset 0 0 34px rgba(255,151,55,.45)}
+  .circle::before{content:"🚀";position:absolute;font-size:64px;opacity:.22;transform:translate(-8px,8px) rotate(-28deg);filter:drop-shadow(0 0 14px #ffad3f)}
+  .ring{border-color:rgba(255,220,166,.4)}
+  .ring-spin{background:conic-gradient(from 0deg,transparent 0%,rgba(255,211,77,.9) 20%,rgba(255,54,158,.72) 38%,transparent 58%);filter:drop-shadow(0 0 12px rgba(255,108,72,.7))}
+  .orb{background:#ffd85c;box-shadow:0 0 12px #ff7c3c}
+  #multiplier{color:#fff170;text-shadow:0 0 15px rgba(255,108,43,.82);font-size:22px}
+  .cell,.analysis-window,.field{background:linear-gradient(145deg,rgba(51,13,82,.86),rgba(119,20,125,.72));border-color:rgba(255,185,226,.3);box-shadow:0 9px 22px rgba(44,0,65,.24)}
+  button{background:linear-gradient(135deg,#9c2cff,#ff3d96);box-shadow:0 10px 24px rgba(212,41,169,.4);border-radius:13px}
+  #autoButton{background:linear-gradient(135deg,#ff386f,#a71563);border-radius:13px}
+  #autoButton.on{background:linear-gradient(135deg,#37d98a,#087d61)}
+  #grandButton{background:linear-gradient(135deg,#ffb431,#f26c2d)}
+  #trainedButton{background:linear-gradient(135deg,#7f3dff,#db36d6)}
+  #aviatorButton{background:linear-gradient(135deg,#ff8a2c,#ff3f86);box-shadow:0 10px 28px rgba(255,103,57,.46)}
+  .panel{background:linear-gradient(155deg,#2d0b4b,#6e126f);border-color:rgba(255,180,226,.28)}
+  .controls input,.controls select,.history-tools select,.btn-secondary{background:#48115f;border-color:rgba(255,184,226,.25)}
+  @keyframes glow{0%,100%{box-shadow:inset 0 0 26px rgba(255,130,60,.35),0 14px 36px rgba(43,0,62,.55)}50%{box-shadow:inset 0 0 44px rgba(255,54,153,.58),0 18px 44px rgba(43,0,62,.66)}}</style>
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script></head>
+<body>
+  <div class="wrap">
+    <!-- Top bar -->
+    <div class="topbar">
+      <!-- Settings button (left) -->
+      <button class="icon-btn" id="openSettings" aria-label="Settings">
+        <!-- grid icon -->
+        <svg viewBox="0 0 24 24" fill="none">
+          <rect x="4" y="4" width="6" height="6" rx="2" fill="#cfd2ff" opacity=".9"></rect>
+          <rect x="14" y="4" width="6" height="6" rx="2" fill="#cfd2ff" opacity=".7"></rect>
+          <rect x="4" y="14" width="6" height="6" rx="2" fill="#cfd2ff" opacity=".8"></rect>
+          <rect x="14" y="14" width="6" height="6" rx="2" fill="#cfd2ff" opacity=".9"></rect>
+        </svg>
+      </button>
+
+      <h1><span class="lucky">ROCKET</span> <span class="jet">QUEEN</span></h1>
+
+      <!-- History button (right) -->
+      <button class="icon-btn" id="openHistory" aria-label="History">
+        <svg viewBox="0 0 24 24" fill="none">
+          <rect x="2.5" y="2.5" width="19" height="19" rx="9.5" stroke="#cfd2ff" stroke-width="2"></rect>
+          <path d="M12 6.8v5.2l3.8 2.2" stroke="#cfd2ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+      </button>
+    </div>
+
+    <div class="circle" id="circle">
+      <div class="ring-spin" id="spin"></div>
+      <div class="ring"></div>
+      <div class="orb"></div><div class="orb o2"></div><div class="orb o3"></div>
+      <div id="multiplier">0.00X</div>
+    </div>
+
+    <!-- Info row: time/round/last coef -->
+    <div class="meta">
+      <div class="cell"><div class="title">Time</div><div id="betTime" class="value">--:--</div></div>
+      <div class="cell"><div class="title">Round</div><div class="value"><span id="roundStatus">0</span>/3</div></div>
+      <div class="cell"><div class="title">Last coef</div><div id="lastCoef" class="value">—</div></div>
+    </div>
+
+    <!-- Counters Wins / Losses / Total -->
+    <div class="meta">
+      <div class="cell"><div class="title">wins ✅</div><div class="value" id="countOk">0</div></div>
+      <div class="cell"><div class="title">losses ❌</div><div class="value" id="countKo">0</div></div>
+      <div class="cell"><div class="title">Total</div><div class="value" id="countTotal">0</div></div>
+    </div>
+
+    <div class="meta">
+      <div class="cell"><div class="title">API</div><div id="apiState" class="value api-wait">WAIT</div></div>
+      <div class="cell"><div class="title">2x last20</div><div id="rate2x" class="value">--</div></div>
+      <div class="cell"><div class="title">10x last120</div><div id="rate10x" class="value">--</div></div>
+    </div>
+
+    <button id="generateButton">SIGNAL</button>
+    <!-- EXTRA: Auto button under Signal -->
+    <button id="autoButton">AUTO</button>
+    <button id="grandButton" class="btn-grand">GRAND 10X</button>
+    <button id="trainedButton" class="btn-trained">TRAINED V3</button>
+    <button id="aviatorButton">OPEN ROCKET QUEEN</button>
+    <button id="exportCsv">EXPORT CSV</button>
+
+    <div id="verifyStatus" class="status"></div>
+    <div class="analysis-window" id="analysisWindow">
+      <div class="analysis-title">ANALYSIS</div>
+      <div class="analysis-reason" id="analysisReason">Collecting data.</div>
+      <div class="analysis-stats" id="analysisStats">PRO / balance / 2.00x-5.00x</div>
+    </div>
+  </div>
+<!-- History Panel -->
+  <div class="panel" id="historyPanel" aria-hidden="true">
+    <div class="panel-header">
+      <div class="square">
+        <svg viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="9" stroke="#cfd2ff" stroke-width="2"></circle>
+          <path d="M12 7.2v5l3.8 2.2" stroke="#cfd2ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+      </div>
+      <div class="ttl">ROUND HISTORY</div>
+      <div class="panel-close" id="closeHistory" aria-label="Close"><i></i></div>
+    </div>
+    <div class="panel-body">
+      <div class="history-tools">
+        <select id="historyFilter" aria-label="History filter">
+          <option value="all">ALL</option>
+          <option value="ok">WIN</option>
+          <option value="ko">LOSS</option>
+          <option value="GRAND">GRAND</option>
+          <option value="TRAINED V3">TRAINED V3</option>
+        </select>
+      </div>
+      <div class="chips" id="chipsContainer"></div>
+    </div>
+  </div>
+
+  <!-- Settings Panel -->
+  <div class="panel" id="settingsPanel" aria-hidden="true">
+    <div class="panel-header">
+      <div class="square">
+        <svg viewBox="0 0 24 24" fill="none">
+          <rect x="4" y="4" width="6" height="6" rx="2" fill="#cfd2ff" opacity=".9"></rect>
+          <rect x="14" y="4" width="6" height="6" rx="2" fill="#cfd2ff" opacity=".7"></rect>
+          <rect x="4" y="14" width="6" height="6" rx="2" fill="#cfd2ff" opacity=".8"></rect>
+          <rect x="14" y="14" width="6" height="6" rx="2" fill="#cfd2ff" opacity=".9"></rect>
+        </svg>
+      </div>
+      <div class="ttl">ANALYS.PY EXACT</div>
+      <div class="panel-close" id="closeSettings" aria-label="Close"><i></i></div>
+    </div>
+    <div class="panel-body">
+      <input type="hidden" id="minOddsInput" value="2.00">
+      <input type="hidden" id="maxOddsInput" value="5.00">
+      <input type="hidden" id="modeSelect" value="PRO">
+      <input type="hidden" id="goalSelect" value="balance">
+      <button class="btn-secondary" id="saveRange" style="display:none">Save fixed mode</button>
+      <div class="field">
+        <div class="label">Fixed logic</div>
+        <div class="hint">PRO / balance / 2.00x-5.00x. Starts fresh and waits for signals like analys.py.</div>
+      </div>
+      <div class="actions">
+        <button class="btn-secondary danger" id="resetStats">Reset stats</button>
+        <button class="btn-secondary danger" id="resetHistory">Reset round history</button>
+      </div>
+      <div class="hint" id="settingsMsg"></div>
+    </div>
+  </div>
+
+<script>
+  // === Exact browser port of analys.py decision flow ===
+  const apiURL = "https://crash-gateway-grm-cr.100hp.app/state";
+  const headers = {
+    "customer-id": "077dee8d-c923-4c02-9bee-757573662e69",
+    "session-id": "ba47ba53-8ac6-4ed5-9bda-3d7d033acffc",
+    "accept": "application/json"
+  };
+
+  const TZ_LABEL = "Europe/Kyiv";
+  const POLL_SECONDS = 5;
+  const PAUSE_AFTER_LOSSES = 2;
+  const PAUSE_SECONDS = 5 * 60;
+  const SETTINGS = { mode:"PRO", goal:"balance", range:{ min:2.0, max:5.0 } };
+  const STORAGE_KEY = "lumorax_rocketqueen_live_v1";
+  const FETCH_TIMEOUT_MS = 8000;
+  const TRAINED_V3 = {
+    name:"TRAINED V3",
+    target:2.0,
+    minTarget:1.8,
+    maxTarget:2.15,
+    triggerBelow:1.5,
+    minLiveRounds:8,
+    historyRounds:1123,
+    testHits:68,
+    testTotal:128,
+    testRate:0.531,
+    baseHits:162,
+    baseTotal:337,
+    baseRate:0.481,
+    rule:"после последнего коэффициента ниже 1.50x"
+  };
+
+  let coefs = [];
+  let last5 = [];
+  let grandEvents = [];
+  let results = [];
+  let stats = { ok:0, ko:0 };
+  let history = [];
+  let lastNoSignal = "Пока идет сбор данных.";
+  let pausedLossStreak = 0;
+  let pauseUntil = 0;
+  let pendingMode = null;
+  let autoSignal = false;
+  let activeSignal = null;
+  let lastRoundKey = "";
+  let lastPolledAt = 0;
+  let pollingNow = false;
+  let mainTimer = null;
+  let entryTimer = null;
+  let countdownTimer = null;
+  let signalPollTimer = null;
+  const aviatorMode = true;
+  let aviatorRoundsReceived = 0;
+  let aviatorBridgeReady = false;
+  let lastAviatorMessageAt = 0;
+
+  const multEl  = document.getElementById("multiplier");
+  const circle  = document.getElementById("circle");
+  const spin    = document.getElementById("spin");
+  const btn     = document.getElementById("generateButton");
+  const autoBtn = document.getElementById("autoButton");
+  const grandBtn = document.getElementById("grandButton");
+  const trainedBtn = document.getElementById("trainedButton");
+  const roundEl = document.getElementById("roundStatus");
+  const lastEl  = document.getElementById("lastCoef");
+  const status  = document.getElementById("verifyStatus");
+  const analysisReasonEl = document.getElementById("analysisReason");
+  const analysisStatsEl = document.getElementById("analysisStats");
+  const betTimeEl = document.getElementById("betTime");
+  const countOkEl = document.getElementById("countOk");
+  const countKoEl = document.getElementById("countKo");
+  const countTotalEl = document.getElementById("countTotal");
+  const apiStateEl = document.getElementById("apiState");
+  const rate2xEl = document.getElementById("rate2x");
+  const rate10xEl = document.getElementById("rate10x");
+  const exportCsvBtn = document.getElementById("exportCsv");
+  const aviatorBtn = document.getElementById("aviatorButton");
+
+  const openHistoryBtn = document.getElementById("openHistory");
+  const closeHistoryBtn = document.getElementById("closeHistory");
+  const historyPanel = document.getElementById("historyPanel");
+  const chipsContainer = document.getElementById("chipsContainer");
+  const historyFilterEl = document.getElementById("historyFilter");
+  const openSettingsBtn = document.getElementById("openSettings");
+  const closeSettingsBtn = document.getElementById("closeSettings");
+  const settingsPanel = document.getElementById("settingsPanel");
+  const resetStatsBtn = document.getElementById("resetStats");
+  const resetHistoryBtn = document.getElementById("resetHistory");
+  const settingsMsg = document.getElementById("settingsMsg");
+
+  const fmt2 = n => (n < 10 ? "0" + n : "" + n);
+  const hhmm = d => fmt2(d.getHours()) + ":" + fmt2(d.getMinutes());
+  const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, value));
+  const avg = arr => arr.reduce((sum, value) => sum + value, 0) / Math.max(1, arr.length);
+
+  function normalizeCoef(value){
+    if(value == null || value === "") return null;
+    const n = Number(typeof value === "string" ? value.toLowerCase().replace("x", "").trim() : value);
+    if(!Number.isFinite(n) || n < 1) return null;
+    return Number((n === 1 ? 1.01 : n).toFixed(2));
+  }
+
+  function setApiState(text, kind){
+    if(!apiStateEl) return;
+    apiStateEl.textContent = text || "WAIT";
+    apiStateEl.className = "value " + (kind === "ok" ? "api-ok" : kind === "ko" ? "api-ko" : "api-wait");
+  }
+
+  function pctText(hits, total){
+    if(!total) return "--";
+    return Math.round(hits / total * 100) + "%";
+  }
+
+  function renderAnalytics(){
+    const recent20 = coefs.slice(-20);
+    const recent120 = coefs.slice(-120);
+    if(rate2xEl){
+      const hits = recent20.filter(x => x >= 2).length;
+      rate2xEl.textContent = recent20.length ? pctText(hits, recent20.length) : "--";
+    }
+    if(rate10xEl){
+      const hits = recent120.filter(x => x >= 10).length;
+      rate10xEl.textContent = recent120.length ? pctText(hits, recent120.length) : "--";
+    }
+  }
+
+  function saveState(){
+    try{
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        coefs: coefs.slice(-120),
+        last5: last5.slice(-5),
+        grandEvents: grandEvents.slice(-50),
+        results: results.slice(-10),
+        stats,
+        history: history.slice(0, 200),
+        lastRoundKey,
+        pausedLossStreak,
+        pauseUntil
+      }));
+    }catch(e){
+      console.warn("Storage save error", e);
+    }
+  }
+
+  function loadState(){
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(!raw) return false;
+      const saved = JSON.parse(raw);
+      coefs = Array.isArray(saved.coefs) ? saved.coefs.map(normalizeCoef).filter(x => x != null).slice(-120) : [];
+      last5 = Array.isArray(saved.last5) ? saved.last5.map(normalizeCoef).filter(x => x != null).slice(-5) : coefs.slice(-5);
+      grandEvents = Array.isArray(saved.grandEvents) ? saved.grandEvents.slice(-50) : [];
+      results = Array.isArray(saved.results) ? saved.results.filter(x => x === "ok" || x === "ko").slice(-10) : [];
+      stats = saved.stats && Number.isFinite(Number(saved.stats.ok)) && Number.isFinite(Number(saved.stats.ko))
+        ? { ok:Number(saved.stats.ok), ko:Number(saved.stats.ko) }
+        : { ok:0, ko:0 };
+      history = Array.isArray(saved.history) ? saved.history.slice(0, 200) : [];
+      lastRoundKey = saved.lastRoundKey || "";
+      pausedLossStreak = Number(saved.pausedLossStreak) || 0;
+      pauseUntil = Number(saved.pauseUntil) || 0;
+      if(coefs.length) lastEl.textContent = coefs[coefs.length - 1].toFixed(2) + "X";
+      return true;
+    }catch(e){
+      console.warn("Storage load error", e);
+      return false;
+    }
+  }
+
+  function clearSavedState(){
+    try{
+      localStorage.removeItem(STORAGE_KEY);
+    }catch(e){
+      console.warn("Storage clear error", e);
+    }
+  }
+
+  function setStatus(msg, kind){
+    status.className = "status " + (kind || "");
+    status.textContent = msg || "";
+  }
+
+  function setButtons(enabled){
+    btn.disabled = !enabled || !!activeSignal;
+    autoBtn.disabled = !enabled;
+    if(grandBtn) grandBtn.disabled = !enabled || !!activeSignal;
+    if(trainedBtn) trainedBtn.disabled = !enabled || !!activeSignal;
+  }
+
+  function setBetTimeToTarget(date){
+    betTimeEl.textContent = hhmm(date);
+  }
+
+  function riskName(risk){
+    if(risk === "low") return "низкий";
+    if(risk === "medium") return "средний";
+    if(risk === "high") return "высокий";
+    return risk || "-";
+  }
+
+  function analysisStatsText(aInfo){
+    const info = aInfo || analyze();
+    const good = last5.filter(x => x > 1.5).length;
+    const recent = last5.length ? "[" + last5.map(x => Number(x).toFixed(2)).join(", ") + "]" : "нет данных";
+    return "PRO / баланс | рынок " + info.score + "/100 | риск " + riskName(info.risk) +
+      " | уверенность " + info.conf + "% | последние: " + recent + " | >1.50: " + good + "/" + last5.length;
+  }
+
+  function writeAnalysis(message, kind, aInfo){
+    if(analysisReasonEl){
+      analysisReasonEl.className = "analysis-reason " + (kind || "");
+      analysisReasonEl.textContent = message || "";
+    }
+    if(analysisStatsEl) analysisStatsEl.textContent = analysisStatsText(aInfo);
+  }
+
+  function refreshCountsUI(){
+    countOkEl.textContent = stats.ok;
+    countKoEl.textContent = stats.ko;
+    countTotalEl.textContent = stats.ok + stats.ko;
+  }
+
+  function pushHistory(entry){
+    history.unshift(entry);
+    if(history.length > 200) history.length = 200;
+    saveState();
+  }
+
+  function renderHistory(){
+    chipsContainer.textContent = "";
+    const filter = historyFilterEl ? historyFilterEl.value : "all";
+    const visibleHistory = history.filter(it => {
+      if(filter === "all") return true;
+      if(filter === "ok" || filter === "ko") return it.status === filter;
+      return it.type === filter;
+    });
+    if(!visibleHistory.length){
+      const em = document.createElement("div");
+      em.textContent = history.length ? "No predictions for this filter." : "No predictions yet.";
+      em.style.opacity = .85;
+      em.style.padding = "4px 2px";
+      chipsContainer.appendChild(em);
+      return;
+    }
+    visibleHistory.forEach(it => {
+      const chip = document.createElement("div");
+      chip.className = "chip " + (it.status === "ok" ? "ok" : "ko");
+      chip.title = (it.status === "ok" ? "Win" : "Loss") + " - " + new Date(it.time).toLocaleString();
+      chip.appendChild(document.createTextNode(Number(it.coef).toFixed(2) + "x"));
+      const small = document.createElement("small");
+      small.textContent = (it.type || "PRO") + " - " + (it.status === "ok" ? "Win" : "Loss") +
+        " - " + hhmm(new Date(it.time)) + (it.round ? " - R" + it.round : "");
+      chip.appendChild(small);
+      chipsContainer.appendChild(chip);
+    });
+  }
+
+  function parseRoundPayload(data){
+    const cfg = data && typeof data.roundConfig === "object" ? data.roundConfig : {};
+    const value = Array.isArray(data && data.stopCoefficients) ? data.stopCoefficients[0] : null;
+    const coef = normalizeCoef(value);
+    if(coef == null) return null;
+    const id = cfg.id || data.roundId || data.id || data.currentRoundId || "";
+    const time = data.stateChangedAt || data.currentTime || data.updatedAt || "";
+    const key = id ? "id:" + String(id) : (time ? "time:" + String(time) + ":" + coef.toFixed(2) : "coef:" + coef.toFixed(2));
+    return { coef, key, id:String(id || ""), time:String(time || "") };
+  }
+
+  async function getCoef(){
+    if(aviatorMode) return null;
+    const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS) : null;
+    try{
+      setApiState("POLL", "");
+      const res = await fetch(apiURL, { headers, cache:"no-store", signal: controller ? controller.signal : undefined });
+      if(!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      const parsed = parseRoundPayload(data);
+      setApiState(parsed ? "LIVE" : "NO DATA", parsed ? "ok" : "");
+      return parsed;
+    }catch(e){
+      const msg = e && e.name === "AbortError" ? "TIMEOUT" : "OFFLINE";
+      setApiState(msg, "ko");
+      console.warn("API error", e);
+      return null;
+    }finally{
+      if(timeoutId) clearTimeout(timeoutId);
+    }
+  }
+
+  function addCoef(round){
+    if(round == null) return false;
+    const coef = typeof round === "object" ? round.coef : normalizeCoef(round);
+    const key = typeof round === "object" && round.key ? round.key : (coef == null ? "" : "coef:" + coef.toFixed(2));
+    if(coef == null) return false;
+    if(key && lastRoundKey === key) return false;
+    if(!key && coefs.length && coefs[coefs.length - 1] === coef) return false;
+    lastRoundKey = key || lastRoundKey;
+    coefs.push(coef);
+    last5.push(coef);
+    if(coefs.length > 120) coefs = coefs.slice(-120);
+    if(last5.length > 5) last5 = last5.slice(-5);
+    rememberGrandEvent(coef);
+    lastEl.textContent = coef.toFixed(2) + "X";
+    renderAnalytics();
+    saveState();
+    console.log("[coef]", coef.toFixed(2) + "X");
+    return true;
+  }
+
+  function aviatorSnapshotDelta(rawValues){
+    const values = (Array.isArray(rawValues) ? rawValues : [])
+      .map(normalizeCoef).filter(value => value != null).slice(-120);
+    if(!values.length) return [];
+    if(!coefs.length) return values;
+
+    const maxAnchor = Math.min(12, coefs.length, values.length);
+    for(let length = maxAnchor; length >= 2; length -= 1){
+      const anchor = coefs.slice(-length);
+      for(let start = values.length - length; start >= 0; start -= 1){
+        let match = true;
+        for(let index = 0; index < length; index += 1){
+          if(values[start + index] !== anchor[index]){ match = false; break; }
+        }
+        if(match) return values.slice(start + length);
+      }
+    }
+
+    const newest = values[values.length - 1];
+    return coefs[coefs.length - 1] === newest ? [] : [newest];
+  }
+
+  function acceptAviatorMessage(data){
+    if(!data || data.source !== "lumorax-aviator") return false;
+    lastAviatorMessageAt = Date.now();
+
+    if(data.type === "bridge-reconnecting"){
+      aviatorBridgeReady = false;
+      setApiState("RECONNECTING", "ko");
+      return true;
+    }
+
+    if(data.type === "bridge-ready" || data.type === "heartbeat"){
+      aviatorBridgeReady = true;
+      setApiState("ROCKET QUEEN " + aviatorRoundsReceived + " LIVE", "ok");
+      return true;
+    }
+
+    if(data.type === "history"){
+      const values = aviatorSnapshotDelta(data.values);
+      let added = 0;
+      values.forEach((coef, index) => {
+        const key = "aviator:sync:" + String(data.ts || data.batchId || Date.now()) + ":" + index;
+        if(addCoef({coef, key})) added += 1;
+      });
+      if(added){
+        aviatorRoundsReceived += added;
+        setButtons(last5.length >= 5);
+        setStatus("Rocket Queen synchronized: " + added + " new rounds received.", "ok");
+        writeAnalysis("Live bridge recovered and synchronized without duplicates.", "ok", analyze());
+      }
+      setApiState("ROCKET QUEEN " + aviatorRoundsReceived + " LIVE", "ok");
+      return true;
+    }
+
+    if(data.type !== "coef") return false;
+    const coef = normalizeCoef(data.coef);
+    if(coef == null) return false;
+    const key = "aviator:" + String(data.roundKey || (Date.now() + ":" + coef.toFixed(2)));
+    if(!addCoef({coef, key})) return true;
+
+    aviatorBridgeReady = true;
+    aviatorRoundsReceived += 1;
+    setButtons(last5.length >= 5);
+    setApiState("ROCKET QUEEN " + aviatorRoundsReceived + " LIVE", "ok");
+    onNewCoef(coef);
+    return true;
+  }
+
+  window.addEventListener("message", event => {
+    if(event.source !== window) return;
+    acceptAviatorMessage(event.data);
+  });
+  function rememberGrandEvent(coef){
+    if(coef < 10) return;
+    const d = new Date();
+    grandEvents.push({ coef, minute:d.getMinutes(), time:d.toISOString(), clock:hhmm(d) });
+    if(grandEvents.length > 50) grandEvents = grandEvents.slice(-50);
+    console.log("[grand]", coef.toFixed(2) + "X at " + hhmm(d));
+  }
+
+  async function pollOnce(){
+    const round = await getCoef();
+    if(addCoef(round)) return round.coef;
+    return null;
+  }
+
+  async function maybePoll(){
+    const nowMs = Date.now();
+    if(pollingNow || nowMs - lastPolledAt < POLL_SECONDS * 1000) return null;
+    pollingNow = true;
+    lastPolledAt = nowMs;
+    try{
+      const coef = await pollOnce();
+      if(coef != null) onNewCoef(coef);
+      return coef;
+    }finally{
+      pollingNow = false;
+    }
+  }
+
+  function filteredCoefs(){
+    if(SETTINGS.mode === "SAFE") return coefs.filter(x => x >= 1.2 && x <= 5);
+    if(SETTINGS.mode === "SNIPER") return coefs.filter(x => x >= 3);
+    return coefs.slice();
+  }
+
+  function consecutiveLosses(){
+    let losses = 0;
+    for(let i = results.length - 1; i >= 0; i--){
+      if(results[i] !== "ko") break;
+      losses += 1;
+    }
+    return losses;
+  }
+
+  function analyze(){
+    if(coefs.length < 3){
+      return { score:50, level:"safe", risk:"low", why:"данных пока мало", conf:50, low_count:0, trend_up:false, losses:consecutiveLosses() };
+    }
+    const recent = coefs.slice(-8);
+    const lowCount = recent.filter(x => x < 1.5).length;
+    const lowRatio = lowCount / recent.length;
+    const veryLow = recent.filter(x => x < 1.2).length;
+    const losses = consecutiveLosses();
+    const prevPart = recent.slice(0, 4);
+    const nowPart = recent.slice(-4);
+    const trendUp = avg(nowPart) > avg(prevPart);
+    let rawScore = 100 - lowRatio * 42 - veryLow * 8 - losses * 22;
+    rawScore += trendUp ? 6 : -6;
+    const score = Math.round(clamp(rawScore, 0, 100));
+    let risk, level;
+    if(score >= 70 && losses === 0){
+      risk = "low";
+      level = "safe";
+    }else if(score >= 45 && losses < 2){
+      risk = "medium";
+      level = "warn";
+    }else{
+      risk = "high";
+      level = "danger";
+    }
+    let why;
+    if(losses >= 2) why = losses + " проигрыша подряд";
+    else if(lowCount >= 4) why = "много низких коэффициентов";
+    else if(trendUp) why = "тренд растет";
+    else why = "тренд слабый или рынок шумный";
+    let conf = score;
+    if(risk === "high") conf -= 10;
+    if(SETTINGS.goal === "rare") conf += 6;
+    conf = Math.round(clamp(conf, 35, 92));
+    return { score, level, risk, why, conf, low_count:lowCount, trend_up:trendUp, losses };
+  }
+
+  function smartTarget(minCoef, maxCoef){
+    let src = filteredCoefs().slice(-8);
+    if(src.length < 5) src = last5.slice();
+    if(!src.length) return Number(minCoef.toFixed(2));
+    const a = avg(src);
+    const lowRatio = src.filter(x => x < 1.5).length / src.length;
+    const aInfo = analyze();
+    let target = a * 0.72 + aInfo.score / 100 * 0.55 - lowRatio * 0.35;
+    if(SETTINGS.mode === "SAFE") target = Math.min(target, 2.2);
+    if(SETTINGS.mode === "SNIPER") target = Math.max(target, Math.min(maxCoef, 3.0));
+    if(SETTINGS.goal === "many") target -= 0.25;
+    if(SETTINGS.goal === "rare") target += 0.35;
+    return Number(clamp(target, minCoef, maxCoef).toFixed(2));
+  }
+
+  function explainSignal(){
+    const aInfo = analyze();
+    const good = last5.filter(x => x > 1.5).length;
+    return "Сигнал выбран: " + good + "/5 последних коэффициентов выше 1.50, рынок " + aInfo.score +
+      "/100, риск " + riskName(aInfo.risk) + ", причина: " + aInfo.why + ".";
+  }
+
+  function trainedPct(value){
+    return (value * 100).toFixed(1) + "%";
+  }
+
+  function trainedLiveInfo(){
+    const recent = coefs.slice(-20);
+    const hit2 = recent.filter(x => x >= TRAINED_V3.target).length;
+    return {
+      last: coefs.length ? coefs[coefs.length - 1] : null,
+      recent,
+      hit2,
+      liveRate: recent.length ? hit2 / recent.length : null,
+      low5: last5.filter(x => x < TRAINED_V3.triggerBelow).length
+    };
+  }
+
+  function trainedTarget(){
+    const info = trainedLiveInfo();
+    let target = TRAINED_V3.target;
+    if(info.recent.length >= 12 && info.liveRate !== null){
+      if(info.liveRate < 0.42) target = TRAINED_V3.minTarget;
+      else if(info.liveRate > 0.56 && last5.filter(x => x >= 1.5).length >= 3) target = TRAINED_V3.maxTarget;
+    }
+    return Number(clamp(target, TRAINED_V3.minTarget, TRAINED_V3.maxTarget).toFixed(2));
+  }
+
+  function explainTrainedSignal(target){
+    const info = trainedLiveInfo();
+    const liveText = info.liveRate === null ? "мало live-данных" : (info.hit2 + "/" + info.recent.length + " >=2.00x, " + trainedPct(info.liveRate));
+    return "TRAINED V3: правило из " + TRAINED_V3.historyRounds + " раундов — " + TRAINED_V3.rule +
+      ". Проверка JSON: " + TRAINED_V3.testHits + "/" + TRAINED_V3.testTotal + " = " + trainedPct(TRAINED_V3.testRate) +
+      " против фона " + trainedPct(TRAINED_V3.baseRate) + ". Live рынок: " + liveText +
+      ". Цель: " + target.toFixed(2) + "X.";
+  }
+
+  function canSignal(){
+    const aInfo = analyze();
+    if(aInfo.level === "danger"){
+      lastNoSignal = "Нет сигнала: слабый рынок, " + aInfo.why + ".";
+      writeAnalysis(lastNoSignal, "ko", aInfo);
+      return false;
+    }
+    if(last5.length < 5){
+      lastNoSignal = "Нет сигнала: нужно 5 последних коэффициентов, сейчас " + last5.length + ".";
+      writeAnalysis(lastNoSignal, "ko", aInfo);
+      return false;
+    }
+    const good = last5.filter(x => x > 1.5).length;
+    if(good < 3){
+      lastNoSignal = "Нет сигнала: коэффициентов выше 1.50 только " + good + "/5.";
+      writeAnalysis(lastNoSignal, "ko", aInfo);
+      return false;
+    }
+    if(SETTINGS.goal === "rare" && aInfo.conf < 70){
+      lastNoSignal = "Нет сигнала: уверенность " + aInfo.conf + "%, нужно от 70%.";
+      writeAnalysis(lastNoSignal, "ko", aInfo);
+      return false;
+    }
+    lastNoSignal = "Сигнал разрешен: условия analys.py выполнены.";
+    writeAnalysis(lastNoSignal, "ok", aInfo);
+    return true;
+  }
+
+  function canTrainedSignal(){
+    const aInfo = analyze();
+    const info = trainedLiveInfo();
+    if(coefs.length < TRAINED_V3.minLiveRounds){
+      lastNoSignal = "TRAINED V3 ждёт: нужно минимум " + TRAINED_V3.minLiveRounds + " live-коэффициентов, сейчас " + coefs.length + ".";
+      writeAnalysis(lastNoSignal, "ko", aInfo);
+      return false;
+    }
+    if(info.last === null){
+      lastNoSignal = "TRAINED V3 ждёт первый коэффициент.";
+      writeAnalysis(lastNoSignal, "ko", aInfo);
+      return false;
+    }
+    if(info.last >= TRAINED_V3.triggerBelow){
+      lastNoSignal = "TRAINED V3 ждёт вход после коэффициента ниже " + TRAINED_V3.triggerBelow.toFixed(2) + "X. Последний: " + info.last.toFixed(2) + "X.";
+      writeAnalysis(lastNoSignal, "", aInfo);
+      return false;
+    }
+    if(consecutiveLosses() >= PAUSE_AFTER_LOSSES){
+      lastNoSignal = "TRAINED V3 не входит: активна защита после проигрышей подряд.";
+      writeAnalysis(lastNoSignal, "ko", aInfo);
+      return false;
+    }
+    if(aInfo.level === "danger" && info.low5 >= 3){
+      lastNoSignal = "TRAINED V3 пропускает: слишком много низких коэффициентов в последних 5 (" + info.low5 + "/5).";
+      writeAnalysis(lastNoSignal, "ko", aInfo);
+      return false;
+    }
+    const target = trainedTarget();
+    lastNoSignal = explainTrainedSignal(target);
+    writeAnalysis(lastNoSignal, "ok", aInfo);
+    return true;
+  }
+
+  function minuteDistance(a, b){
+    const direct = Math.abs(a - b);
+    return Math.min(direct, 60 - direct);
+  }
+
+  function nextTimeForMinute(minute){
+    const d = new Date();
+    d.setSeconds(0, 0);
+    if(d.getMinutes() >= minute) d.setHours(d.getHours() + 1);
+    d.setMinutes(minute);
+    return d;
+  }
+
+  function grandAnalysis(){
+    if(grandEvents.length < 2) return null;
+    const currentMinute = new Date().getMinutes();
+    const candidates = [];
+    for(let shift = 1; shift <= 15; shift++){
+      const minute = (currentMinute + shift) % 60;
+      const exact = grandEvents.filter(event => event.minute === minute).length;
+      const near = grandEvents.filter(event => minuteDistance(event.minute, minute) === 1).length;
+      const score = exact * 3 + near;
+      if(score) candidates.push({ score, exact, near, minute });
+    }
+    if(!candidates.length) return null;
+    candidates.sort((a, b) => b.score - a.score);
+    const best = candidates[0];
+    const lastEvents = grandEvents.slice(-5);
+    const confidence = Math.round(clamp(35 + best.score * 8 + Math.min(grandEvents.length, 10) * 2, 35, 88));
+    const avgHigh = avg(lastEvents.map(event => event.coef));
+    const target = Number(clamp(avgHigh * 0.42 + confidence * 0.08, 10, 35).toFixed(2));
+    return { time:nextTimeForMinute(best.minute), exact:best.exact, near:best.near, score:best.score, confidence, target, lastEvents };
+  }
+
+  function chooseEntryTime(){
+    const entry = new Date(Date.now() + (Math.floor(Math.random() * 4) + 1) * 60000);
+    entry.setSeconds(0, 0);
+    if(entry.getTime() <= Date.now() + 10000) entry.setMinutes(entry.getMinutes() + 1);
+    return entry;
+  }
+
+  function chooseTrainedEntryTime(){
+    const entry = new Date(Date.now() + 65000);
+    entry.setSeconds(0, 0);
+    if(entry.getTime() <= Date.now() + 10000) entry.setMinutes(entry.getMinutes() + 1);
+    return entry;
+  }
+
+  function minMaxRange(){
+    const minCoef = Math.max(1.0, Number(SETTINGS.range.min));
+    const maxCoef = Math.max(minCoef + 0.01, Number(SETTINGS.range.max));
+    return { min:minCoef, max:maxCoef };
+  }
+
+  function startSignal(target, entryTime, type, skipFirst, detail){
+    clearSignalTimers();
+    activeSignal = { target, entryTime, type, skipFirst, phase:"waitEntry", round:0, lastReal:null };
+    pendingMode = null;
+    roundEl.textContent = "0";
+    setBetTimeToTarget(entryTime);
+    multEl.textContent = target.toFixed(2) + "X";
+    multEl.style.color = "#00ff66";
+    circle.classList.remove("ok", "ko");
+    circle.classList.add("verifying");
+    spin.classList.remove("ok", "ko");
+    setButtons(last5.length >= 5);
+    const msg = detail + " Вход: " + hhmm(entryTime) + " по Киеву.";
+    setStatus(msg, "");
+    writeAnalysis(msg, "ok", analyze());
+    console.log("[signal] target=" + target.toFixed(2) + "X entry=" + hhmm(entryTime));
+    scheduleSignalTimers();
+  }
+
+  function formatLeft(ms){
+    const total = Math.max(0, Math.ceil(ms / 1000));
+    const minutes = Math.floor(total / 60);
+    const seconds = total % 60;
+    return minutes > 0 ? minutes + "м " + seconds + "с" : seconds + "с";
+  }
+
+  function clearSignalTimers(){
+    if(entryTimer){
+      clearTimeout(entryTimer);
+      entryTimer = null;
+    }
+    if(countdownTimer){
+      clearInterval(countdownTimer);
+      countdownTimer = null;
+    }
+    if(signalPollTimer){
+      clearInterval(signalPollTimer);
+      signalPollTimer = null;
+    }
+  }
+
+  function scheduleSignalTimers(){
+    if(!activeSignal) return;
+    const delay = Math.max(0, activeSignal.entryTime.getTime() - Date.now() + 150);
+    entryTimer = setTimeout(() => {
+      updateActiveSignalByClock(true);
+    }, delay);
+    countdownTimer = setInterval(() => {
+      updateActiveSignalByClock(false);
+    }, 1000);
+    signalPollTimer = setInterval(() => {
+      maybePoll();
+    }, 1000);
+    updateActiveSignalByClock(false);
+  }
+
+  function updateActiveSignalByClock(force){
+    if(!activeSignal || activeSignal.phase !== "waitEntry") return;
+
+    const leftMs = activeSignal.entryTime.getTime() - Date.now();
+    if(leftMs > 0 && !force){
+      const msg = "Вход в " + hhmm(activeSignal.entryTime) + ". Осталось " + formatLeft(leftMs) + ".";
+      setStatus(msg, "");
+      writeAnalysis("Сигнал выбран. Жду время входа " + hhmm(activeSignal.entryTime) + ", продолжаю сбор коэффициентов.", "ok", analyze());
+      return;
+    }
+
+    const enterMsg = "⏱ Время входа. Ставить сейчас. Жду завершения текущего раунда.";
+    setStatus(enterMsg, "");
+    writeAnalysis("Время входа наступило. Ставь сейчас. " + (activeSignal.skipFirst ? "Ближайший новый коэффициент будет пропущен как текущий раунд, потом начнется проверка 1/3." : "Начинаю проверку следующих 3 раундов."), "ok", analyze());
+    activeSignal.phase = activeSignal.skipFirst ? "skipNext" : "checking";
+    if(entryTimer){
+      clearTimeout(entryTimer);
+      entryTimer = null;
+    }
+    if(countdownTimer){
+      clearInterval(countdownTimer);
+      countdownTimer = null;
+    }
+  }
+
+  function runSignalCycle(){
+    const range = minMaxRange();
+    const target = smartTarget(range.min, range.max);
+    const entryTime = chooseEntryTime();
+    startSignal(target, entryTime, SETTINGS.mode, true, "🚀 LuckyJet сигнал. " + explainSignal());
+  }
+
+  function runTrainedCycle(){
+    const target = trainedTarget();
+    const entryTime = chooseTrainedEntryTime();
+    startSignal(target, entryTime, TRAINED_V3.name, true, "🧠 " + explainTrainedSignal(target));
+  }
+
+  function runGrandCycle(){
+    const plan = grandAnalysis();
+    if(!plan){
+      handleGrandRequest(true);
+      return false;
+    }
+    startSignal(plan.target, plan.time, "GRAND", false,
+      "👑 GRAND 10X. Уверенность " + plan.confidence + "%, совпадений " + plan.exact + ", рядом " + plan.near + ".");
+    return true;
+  }
+
+  function handleSimpleRequest(fromWait){
+    if(activeSignal) return false;
+    if(canSignal()){
+      pendingMode = null;
+      runSignalCycle();
+      return true;
+    }
+    pendingMode = "simple";
+    if(!fromWait){
+      const msg = "Простой сигнал поставлен в ожидание. Сейчас причина: " + lastNoSignal;
+      setStatus(msg, "");
+      writeAnalysis(msg + " Как только рынок восстановится, HTML сам даст сигнал.", "ko", analyze());
+    }
+    return false;
+  }
+
+  function handleGrandRequest(fromWait){
+    if(activeSignal) return false;
+    if(grandAnalysis()){
+      pendingMode = null;
+      runGrandCycle();
+      return true;
+    }
+    pendingMode = "grand";
+    const msg = "GRAND поставлен в ожидание. Нужно минимум 2 события 10X+, сейчас найдено: " + grandEvents.length + ".";
+    if(!fromWait) setStatus(msg, "");
+    writeAnalysis(msg, "ko", analyze());
+    return false;
+  }
+
+  function handleTrainedRequest(fromWait){
+    if(activeSignal) return false;
+    if(canTrainedSignal()){
+      pendingMode = null;
+      runTrainedCycle();
+      return true;
+    }
+    pendingMode = "trained";
+    if(!fromWait){
+      const msg = "TRAINED V3 поставлен в ожидание. Сейчас причина: " + lastNoSignal;
+      setStatus(msg, "");
+      writeAnalysis(msg + " HTML продолжит смотреть рынок и даст вход, когда появится коэффициент ниже " + TRAINED_V3.triggerBelow.toFixed(2) + "X.", "", analyze());
+    }
+    return false;
+  }
+
+  function handlePendingRequest(){
+    if(pendingMode === "simple") handleSimpleRequest(true);
+    else if(pendingMode === "grand") handleGrandRequest(true);
+    else if(pendingMode === "trained") handleTrainedRequest(true);
+  }
+
+  function onNewCoef(coef){
+    if(last5.length >= 5 && !activeSignal && btn.disabled){
+      setButtons(true);
+      const readyMsg = "Warmup complete: 5/5. Buttons enabled.";
+      setStatus(readyMsg, "");
+      writeAnalysis("Warmup завершен: собрано 5/5. Можно запрашивать сигнал.", "ok", analyze());
+    }
+
+    if(last5.length < 5 && !activeSignal){
+      const msg = "Сбор первых коэффициентов: " + last5.length + "/5.";
+      setStatus(msg, "");
+      writeAnalysis(msg, "", analyze());
+      if(last5.length >= 5){
+        setButtons(true);
+        setStatus("Готово. Кнопки активны, жду запрос сигнала.", "");
+        writeAnalysis("Warmup завершен как в analys.py. Можно запрашивать сигнал.", "ok", analyze());
+      }
+      return;
+    }
+
+    if(!activeSignal){
+      writeAnalysis("Данные обновлены. Последний коэффициент: " + coef.toFixed(2) + "X.", "", analyze());
+      return;
+    }
+
+    if(activeSignal.phase === "waitEntry"){
+      if(Date.now() < activeSignal.entryTime.getTime()){
+        writeAnalysis("Жду время входа " + hhmm(activeSignal.entryTime) + ". Продолжаю сбор коэффициентов.", "", analyze());
+        return;
+      }
+      setStatus("⏱ Время входа. Ставить сейчас.", "");
+      writeAnalysis("Время входа наступило. " + (activeSignal.skipFirst ? "Первый новый коэффициент будет пропущен как в analys.py." : "Проверяю следующие 3 раунда."), "ok", analyze());
+      activeSignal.phase = activeSignal.skipFirst ? "skipNext" : "checking";
+    }
+
+    if(activeSignal.phase === "skipNext"){
+      activeSignal.lastReal = coef;
+      activeSignal.phase = "checking";
+      console.log("[signal] skipped current round:", coef.toFixed(2) + "X");
+      writeAnalysis("Пропущен текущий раунд: " + coef.toFixed(2) + "X. Теперь проверяю 3 следующих.", "", analyze());
+      return;
+    }
+
+    if(activeSignal.phase === "checking"){
+      activeSignal.round += 1;
+      activeSignal.lastReal = coef;
+      roundEl.textContent = activeSignal.round;
+      console.log("[round " + activeSignal.round + "] real=" + coef.toFixed(2) + "X target=" + activeSignal.target.toFixed(2) + "X");
+      if(coef >= activeSignal.target){
+        finishSignal(true, coef, activeSignal.round);
+        return;
+      }
+      if(activeSignal.round >= 3) finishSignal(false, coef, 3);
+    }
+  }
+
+  function finishSignal(ok, realCoef, roundNumber){
+    const signal = activeSignal;
+    clearSignalTimers();
+    const result = ok ? "ok" : "ko";
+    results.push(result);
+    if(results.length > 10) results = results.slice(-10);
+    stats[result] += 1;
+    refreshCountsUI();
+    pushHistory({ coef:signal.target, status:result, time:new Date().toISOString(), round:roundNumber, type:signal.type, real:realCoef });
+
+    if(ok){
+      pausedLossStreak = 0;
+      setStatus("✅ Сигнал успешно зашел. Раунд " + roundNumber + "/3", "ok");
+      writeAnalysis("Сигнал зашел: цель " + signal.target.toFixed(2) + "X, реальный " + realCoef.toFixed(2) + "X.", "ok", analyze());
+      multEl.textContent = "Win ✅";
+      multEl.style.color = "#10b981";
+      circle.classList.remove("verifying", "ko");
+      circle.classList.add("ok");
+      spin.classList.remove("ko");
+      spin.classList.add("ok");
+    }else{
+      setStatus("❌ Сигнал не зашел. Проверено 3/3 раунда.", "ko");
+      writeAnalysis("Сигнал не зашел: цель " + signal.target.toFixed(2) + "X, последний " + realCoef.toFixed(2) + "X.", "ko", analyze());
+      multEl.textContent = "Loss ❌";
+      multEl.style.color = "#ef4444";
+      circle.classList.remove("verifying", "ok");
+      circle.classList.add("ko");
+      spin.classList.remove("ok");
+      spin.classList.add("ko");
+    }
+
+    activeSignal = null;
+    setButtons(last5.length >= 5);
+  }
+
+  function pauseIfNeeded(){
+    if(activeSignal) return true;
+    const nowMs = Date.now();
+    if(pauseUntil && nowMs < pauseUntil){
+      const left = Math.ceil((pauseUntil - nowMs) / 1000);
+      setStatus("Пауза активна: осталось " + Math.ceil(left / 60) + " мин.", "ko");
+      writeAnalysis("Причина: " + consecutiveLosses() + " проигрыша подряд. Продолжу мониторинг после паузы.", "ko", analyze());
+      return true;
+    }
+    if(pauseUntil && nowMs >= pauseUntil){
+      while(results.length && results[results.length - 1] === "ko") results.pop();
+      pausedLossStreak = 0;
+      pauseUntil = 0;
+      saveState();
+      setStatus("Пауза закончилась. Снова ищу новый сигнал.", "");
+      writeAnalysis("Пауза закончилась. Логика снова ищет сигнал.", "", analyze());
+      return false;
+    }
+
+    const losses = consecutiveLosses();
+    if(losses < PAUSE_AFTER_LOSSES){
+      pausedLossStreak = 0;
+      return false;
+    }
+    if(losses <= pausedLossStreak) return false;
+    pausedLossStreak = losses;
+    pauseUntil = Date.now() + PAUSE_SECONDS * 1000;
+    saveState();
+    setStatus("Пауза активна: " + losses + " проигрыша подряд.", "ko");
+    writeAnalysis("Пауза как в analys.py: " + losses + " проигрыша подряд, мониторинг продолжится через 5 минут.", "ko", analyze());
+    return true;
+  }
+
+  async function mainTick(){
+    if(pauseIfNeeded()) return;
+    updateActiveSignalByClock();
+    await maybePoll();
+    updateActiveSignalByClock();
+    if(activeSignal || last5.length < 5) return;
+    if(pendingMode) handlePendingRequest();
+    else if(autoSignal && canSignal()) runSignalCycle();
+    else if(autoSignal) writeAnalysis("AUTO включен. " + lastNoSignal, "", analyze());
+  }
+
+  function toggle(el, open){
+    if(open){
+      el.classList.add("open");
+      el.setAttribute("aria-hidden", "false");
+    }else{
+      el.classList.remove("open");
+      el.setAttribute("aria-hidden", "true");
+    }
+  }
+
+  function csvCell(value){
+    const text = value == null ? "" : String(value);
+    return /[",\n\r]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+  }
+
+  function exportCsv(){
+    const rows = [["kind","time","type","status","target","real","round","coef"]];
+    if(history.length){
+      history.slice().reverse().forEach(it => {
+        rows.push([
+          "signal",
+          it.time || "",
+          it.type || "PRO",
+          it.status || "",
+          Number.isFinite(Number(it.coef)) ? Number(it.coef).toFixed(2) : "",
+          Number.isFinite(Number(it.real)) ? Number(it.real).toFixed(2) : "",
+          it.round || "",
+          ""
+        ]);
+      });
+    }else{
+      coefs.forEach((coef, index) => {
+        rows.push(["coef", "", "", "", "", "", index + 1, Number(coef).toFixed(2)]);
+      });
+    }
+    const csv = rows.map(row => row.map(csvCell).join(",")).join("\n");
+    const blob = new Blob([csv], { type:"text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "luckyjet-analysis-" + new Date().toISOString().slice(0, 10) + ".csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  btn.addEventListener("click", () => {
+    autoSignal = false;
+    autoBtn.classList.remove("on");
+    autoBtn.textContent = "AUTO";
+    handleSimpleRequest(false);
+  });
+
+  if(grandBtn){
+    grandBtn.addEventListener("click", () => {
+      autoSignal = false;
+      autoBtn.classList.remove("on");
+      autoBtn.textContent = "AUTO";
+      handleGrandRequest(false);
+    });
+  }
+
+  if(trainedBtn){
+    trainedBtn.addEventListener("click", () => {
+      autoSignal = false;
+      autoBtn.classList.remove("on");
+      autoBtn.textContent = "AUTO";
+      handleTrainedRequest(false);
+    });
+  }
+
+  autoBtn.addEventListener("click", () => {
+    autoSignal = !autoSignal;
+    pendingMode = null;
+    autoBtn.classList.toggle("on", autoSignal);
+    autoBtn.textContent = autoSignal ? "AUTO: ON" : "AUTO";
+    if(autoSignal){
+      setStatus("AUTO сигнал включен. Если рынок слабый, HTML подождет восстановления.", "");
+      writeAnalysis("AUTO включен. Жду условия can_signal(), как analys.py.", "", analyze());
+    }else{
+      setStatus("AUTO сигнал выключен.", "");
+      writeAnalysis("AUTO выключен. Новые сигналы только после нажатия кнопки.", "", analyze());
+    }
+  });
+
+  openHistoryBtn.addEventListener("click", () => { renderHistory(); toggle(historyPanel, true); });
+  closeHistoryBtn.addEventListener("click", () => toggle(historyPanel, false));
+  if(historyFilterEl) historyFilterEl.addEventListener("change", renderHistory);
+  if(aviatorBtn) aviatorBtn.addEventListener("click", () => {
+    const nativeControl = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.aviatorControl;
+    if(nativeControl){
+      nativeControl.postMessage({ action:"open-rocketqueen", hasState:Boolean(localStorage.getItem(STORAGE_KEY)) });
+      setStatus("Открываю Rocket Queen внутри приложения. После входа мост передаст коэффициенты.", "ok");
+      writeAnalysis("Войдите в 1win в открывшемся окне и запустите Rocket Queen. Ставки приложение не нажимает.", "ok", analyze());
+      return;
+    }
+    const gameWindow = window.open("https://one-vv1220.com/casino/play/v_1wingames:rocketqueen?p=yshe", "lumorax-aviator");
+    if(gameWindow){
+      setStatus("Rocket Queen открыта. Мост передаст отображённые завершённые коэффициенты.", "ok");
+      writeAnalysis("Жду коэффициенты Rocket Queen. Сигналы появятся после получения истории.", "ok", analyze());
+    }else{
+      setStatus("Не удалось открыть Rocket Queen.", "ko");
+    }
+  });
+  if(exportCsvBtn) exportCsvBtn.addEventListener("click", exportCsv);
+  openSettingsBtn.addEventListener("click", () => toggle(settingsPanel, true));
+  closeSettingsBtn.addEventListener("click", () => toggle(settingsPanel, false));
+
+  resetStatsBtn.addEventListener("click", () => {
+    stats = { ok:0, ko:0 };
+    results = [];
+    pausedLossStreak = 0;
+    pauseUntil = 0;
+    refreshCountsUI();
+    saveState();
+    settingsMsg.textContent = "Stats reset.";
+    writeAnalysis("Статистика сброшена.", "", analyze());
+  });
+
+  resetHistoryBtn.addEventListener("click", () => {
+    clearSignalTimers();
+    history = [];
+    coefs = [];
+    last5 = [];
+    grandEvents = [];
+    results = [];
+    lastRoundKey = "";
+    activeSignal = null;
+    pendingMode = null;
+    saveState();
+    renderHistory();
+    renderAnalytics();
+    setButtons(false);
+    roundEl.textContent = "0";
+    lastEl.textContent = "—";
+    betTimeEl.textContent = "--:--";
+    settingsMsg.textContent = "History and collected analysis data reset.";
+    setStatus("Сбор первых коэффициентов...", "");
+    writeAnalysis("Данные сброшены. Снова собираю первые 5 коэффициентов.", "", analyze());
+  });
+
+  const restoredState = loadState();
+  refreshCountsUI();
+  renderAnalytics();
+  renderHistory();
+  setButtons(last5.length >= 5);
+  setApiState(restoredState ? "ROCKET QUEEN RESTORED" : "WAIT ROCKET QUEEN", restoredState ? "ok" : "");
+  if(last5.length >= 5){
+    setStatus(restoredState ? "Данные восстановлены. Кнопки активны, продолжаю мониторинг." : "Готово. Кнопки активны, жду запрос сигнала.", "");
+    writeAnalysis((restoredState ? "История восстановлена из localStorage. " : "") + "Собрано " + last5.length + "/5 последних коэффициентов. Можно запрашивать сигнал.", "ok", analyze());
+  }else{
+    setStatus("Сбор первых коэффициентов...", "");
+    writeAnalysis("Как analys.py: сначала собираю 5 последних коэффициентов, потом активирую сигналы.", "", analyze());
+  }
+  if(!aviatorBridgeReady) setApiState(restoredState ? "ROCKET QUEEN RESTORED" : "WAIT BRIDGE", restoredState ? "ok" : "");
+  mainTimer = setInterval(mainTick, 1000);
+  setInterval(() => {
+    if(lastAviatorMessageAt && Date.now() - lastAviatorMessageAt > 15000){
+      aviatorBridgeReady = false;
+      setApiState("RECONNECTING", "ko");
+    }
+  }, 5000);
+
+</script>
+
+
+<button id="iosBackToGames" type="button" style="position:fixed;left:14px;bottom:calc(14px + env(safe-area-inset-bottom));z-index:80;border:1px solid rgba(255,255,255,.22);border-radius:999px;background:#171225;color:#fff;padding:11px 17px;font-weight:900;box-shadow:0 8px 24px rgba(0,0,0,.45)">‹ GAMES</button>
+<script>
+(function(){
+  const control = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.aviatorControl;
+  if(control){
+    window.postMessage({source:"lumorax-aviator",type:"bridge-ready"}, "*");
+    control.postMessage({action:"ready",hasState:Boolean(localStorage.getItem("lumorax_rocketqueen_live_v1"))});
+  }
+  document.getElementById("iosBackToGames").addEventListener("click", function(){
+    if(control) control.postMessage({action:"close"});
+    window.location.href = "index.html";
+  });
+})();
+</script>
+</body></html>
+
