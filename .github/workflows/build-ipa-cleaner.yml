@@ -15,12 +15,13 @@ jobs:
         working-directory: IPACleaner
         run: |
           set -e
+          rm -rf build Payload IPACleaner-unsigned.ipa
           xcodebuild \
             -project IPACleaner.xcodeproj \
             -target IPACleaner \
             -configuration Release \
             -sdk iphoneos \
-            -derivedDataPath build \
+            CONFIGURATION_BUILD_DIR="$PWD/build" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
@@ -30,8 +31,8 @@ jobs:
         working-directory: IPACleaner
         run: |
           set -e
-          APP=$(find build -type d -name "IPACleaner.app" | head -n 1)
-          test -n "$APP"
+          APP="$PWD/build/IPACleaner.app"
+          test -d "$APP"
           mkdir -p Payload
           cp -R "$APP" Payload/
           zip -qry IPACleaner-unsigned.ipa Payload
