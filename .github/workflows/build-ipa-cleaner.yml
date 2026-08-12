@@ -1,0 +1,43 @@
+name: Build IPA Cleaner
+
+on:
+  push:
+    branches: [ ipa-cleaner-build ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build unsigned app
+        working-directory: IPACleaner
+        run: |
+          set -e
+          xcodebuild \
+            -project IPACleaner.xcodeproj \
+            -target IPACleaner \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package IPA
+        working-directory: IPACleaner
+        run: |
+          set -e
+          APP=$(find build -type d -name "IPACleaner.app" | head -n 1)
+          test -n "$APP"
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry IPACleaner-unsigned.ipa Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: IPACleaner-unsigned
+          path: IPACleaner/IPACleaner-unsigned.ipa
