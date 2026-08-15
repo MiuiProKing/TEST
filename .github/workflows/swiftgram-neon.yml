@@ -45,7 +45,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ENCRYPTED_REPO_PATH="swiftgram-neon/runtime/$GITHUB_RUN_ID.enc"
+          ENCRYPTED_REPO_PATH="swiftgram-neon-credentials/$GITHUB_RUN_ID.enc"
           API_URL="https://api.github.com/repos/$GITHUB_REPOSITORY/contents/$ENCRYPTED_REPO_PATH?ref=main"
           RESPONSE_FILE="$RUNNER_TEMP/swiftgram-credentials-response.json"
           CIPHERTEXT_B64_FILE="$RUNNER_TEMP/swiftgram-credentials-ciphertext.txt"
