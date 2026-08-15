@@ -39,8 +39,271 @@ index dd98590585..4d0eee3e0f 100644
              DispatchQueue.main.async {
                  SGSimpleSettings.shared.customAppBadge = selectedBadge.assetName
                  self.context.sharedContext.mainWindow?.badgeView.image = image
+diff --git a/Swiftgram/SGProUI/Sources/NeonAudioController.swift b/Swiftgram/SGProUI/Sources/NeonAudioController.swift
+new file mode 100644
+index 0000000000..5b9222e690
+--- /dev/null
++++ b/Swiftgram/SGProUI/Sources/NeonAudioController.swift
+@@ -0,0 +1,132 @@
++import AccountContext
++import Display
++import Foundation
++import ItemListUI
++import SGItemListUI
++import SGSimpleSettings
++import SwiftSignalKit
++import TelegramPresentationData
++
++private enum SGNeonAudioSection: Int32, SGItemListSection {
++    case preset
++    case speaker
++    case headphones
++    case loudness
++    case info
++}
++
++private enum SGNeonAudioToggle: Hashable {
++    case unused
++}
++
++private enum SGNeonAudioSlider: Hashable {
++    case speakerBass
++    case headphonesBass
++    case loudness
++}
++
++private enum SGNeonAudioSelector: Hashable {
++    case preset
++}
++
++private enum SGNeonAudioLink: Hashable {
++    case unused
++}
++
++private enum SGNeonAudioAction: Hashable {
++    case unused
++}
++
++private typealias SGNeonAudioEntry = SGItemListUIEntry<SGNeonAudioSection, SGNeonAudioToggle, SGNeonAudioSlider, SGNeonAudioSelector, SGNeonAudioLink, SGNeonAudioAction>
++
++private func neonAudioPresetTitle(_ preset: SGSimpleSettings.NeonAudioPreset) -> String {
++    switch preset {
++    case .normal:
++        return "Обычный"
++    case .bass:
++        return "Бас"
++    case .deepBass:
++        return "Глубокий бас"
++    }
++}
++
++private func sgNeonAudioEntries() -> [SGNeonAudioEntry] {
++    var entries: [SGNeonAudioEntry] = []
++    let id = SGItemListCounter()
++    let settings = SGSimpleSettings.shared
++
++    entries.append(.header(id: id.count, section: .preset, text: "РЕЖИМ ЗВУКА", badge: "НОВОЕ"))
++    entries.append(.oneFromManySelector(id: id.count, section: .preset, settingName: .preset, text: "Пресет", value: neonAudioPresetTitle(settings.neonAudioPresetValue), enabled: true))
++
++    entries.append(.header(id: id.count, section: .speaker, text: "БАС ДИНАМИКА", badge: "\(settings.neonAudioSpeakerBass)%"))
++    entries.append(.percentageSlider(id: id.count, section: .speaker, settingName: .speakerBass, value: settings.neonAudioSpeakerBass))
++    entries.append(.notice(id: id.count, section: .speaker, text: "Безопасное усиление низких частот для динамиков iPhone без резкого перегруза."))
++
++    entries.append(.header(id: id.count, section: .headphones, text: "БАС НАУШНИКОВ И BLUETOOTH", badge: "\(settings.neonAudioHeadphonesBass)%"))
++    entries.append(.percentageSlider(id: id.count, section: .headphones, settingName: .headphonesBass, value: settings.neonAudioHeadphonesBass))
++    entries.append(.notice(id: id.count, section: .headphones, text: "Для проводных, Bluetooth- и USB-наушников используется отдельная сила баса."))
++
++    entries.append(.header(id: id.count, section: .loudness, text: "УСИЛЕНИЕ ГРОМКОСТИ", badge: "\(settings.neonAudioLoudness)%"))
++    entries.append(.percentageSlider(id: id.count, section: .loudness, settingName: .loudness, value: settings.neonAudioLoudness))
++    entries.append(.notice(id: id.count, section: .loudness, text: "Компрессор и ограничитель сглаживают громкие пики и уменьшают хрипы."))
++
++    entries.append(.header(id: id.count, section: .info, text: "ГДЕ РАБОТАЕТ", badge: nil))
++    entries.append(.notice(id: id.count, section: .info, text: "Эффект применяется к музыке, видео и голосовым сообщениям внутри Swiftgram Neon. Телефонные и Telegram-звонки, микрофон и звук других приложений не изменяются."))
++
++    return entries
++}
++
++public func sgNeonAudioController(context: AccountContext) -> ViewController {
++    var presentControllerImpl: ((ViewController, ViewControllerPresentationArguments?) -> Void)?
++    let updatePromise = ValuePromise(true, ignoreRepeated: false)
++
++    let notifyAudioSettingsChanged: () -> Void = {
++        NotificationCenter.default.post(name: .sgNeonAudioSettingsChanged, object: nil)
++        updatePromise.set(true)
++    }
++
++    let arguments = SGItemListArguments<SGNeonAudioToggle, SGNeonAudioSlider, SGNeonAudioSelector, SGNeonAudioLink, SGNeonAudioAction>(context: context, updateSliderValue: { slider, value in
++        let value = max(0, min(100, value))
++        switch slider {
++        case .speakerBass:
++            SGSimpleSettings.shared.neonAudioSpeakerBass = value
++        case .headphonesBass:
++            SGSimpleSettings.shared.neonAudioHeadphonesBass = value
++        case .loudness:
++            SGSimpleSettings.shared.neonAudioLoudness = value
++        }
++        notifyAudioSettingsChanged()
++    }, setOneFromManyValue: { selector in
++        switch selector {
++        case .preset:
++            let presentationData = context.sharedContext.currentPresentationData.with { $0 }
++            let actionSheet = ActionSheetController(presentationData: presentationData)
++            var items: [ActionSheetItem] = []
++            for preset in SGSimpleSettings.NeonAudioPreset.allCases {
++                items.append(ActionSheetButtonItem(title: neonAudioPresetTitle(preset), color: .accent, action: { [weak actionSheet] in
++                    actionSheet?.dismissAnimated()
++                    SGSimpleSettings.shared.neonAudioPreset = preset.rawValue
++                    notifyAudioSettingsChanged()
++                }))
++            }
++            items.append(ActionSheetButtonItem(title: presentationData.strings.Common_Cancel, color: .accent, font: .bold, action: { [weak actionSheet] in
++                actionSheet?.dismissAnimated()
++            }))
++            actionSheet.setItemGroups([ActionSheetItemGroup(items: items)])
++            presentControllerImpl?(actionSheet, ViewControllerPresentationArguments(presentationAnimation: .modalSheet))
++        }
++    })
++
++    let signal = combineLatest(context.sharedContext.presentationData, updatePromise.get())
++    |> map { presentationData, _ -> (ItemListControllerState, (ItemListNodeState, Any)) in
++        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text("Аудио Neon"), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
++        let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: sgNeonAudioEntries(), style: .blocks, ensureVisibleItemTag: nil, initialScrollToItem: nil)
++        return (controllerState, (listState, arguments))
++    }
++
++    let controller = ItemListController(context: context, state: signal)
++    presentControllerImpl = { [weak controller] childController, arguments in
++        controller?.present(childController, in: .window(.root), with: arguments)
++    }
++    return controller
++}
+diff --git a/Swiftgram/SGProUI/Sources/OnlineMonitorController.swift b/Swiftgram/SGProUI/Sources/OnlineMonitorController.swift
+new file mode 100644
+index 0000000000..0fd5878f92
+--- /dev/null
++++ b/Swiftgram/SGProUI/Sources/OnlineMonitorController.swift
+@@ -0,0 +1,119 @@
++import Foundation
++import AccountContext
++import Display
++import ItemListUI
++import Postbox
++import SGItemListUI
++import SGSimpleSettings
++import SwiftSignalKit
++import TelegramPresentationData
++import UserNotifications
++
++private enum SGOnlineMonitorSection: Int32, SGItemListSection {
++    case users
++    case history
++    case info
++}
++
++private enum SGOnlineMonitorToggle: Hashable {
++    case user(Int64)
++}
++
++private enum SGOnlineMonitorSlider: Hashable {
++    case unused
++}
++
++private enum SGOnlineMonitorSelector: Hashable {
++    case unused
++}
++
++private enum SGOnlineMonitorLink: Hashable {
++    case unused
++}
++
++private enum SGOnlineMonitorAction: Hashable {
++    case testNotification
++}
++
++private typealias SGOnlineMonitorEntry = SGItemListUIEntry<SGOnlineMonitorSection, SGOnlineMonitorToggle, SGOnlineMonitorSlider, SGOnlineMonitorSelector, SGOnlineMonitorLink, SGOnlineMonitorAction>
++
++private func sgOnlineMonitorEntries(context: AccountContext) -> [SGOnlineMonitorEntry] {
++    var entries: [SGOnlineMonitorEntry] = []
++    let id = SGItemListCounter()
++    let accountPeerId = context.account.peerId.toInt64()
++    let users = SGSimpleSettings.shared.onlineMonitorUsers(accountPeerId: accountPeerId)
++
++    entries.append(.header(id: id.count, section: .users, text: "ОТСЛЕЖИВАЕМЫЕ ПОЛЬЗОВАТЕЛИ", badge: users.isEmpty ? nil : "\(users.count)"))
++    for (peerId, title) in users.sorted(by: { $0.value.localizedCaseInsensitiveCompare($1.value) == .orderedAscending }) {
++        entries.append(.toggle(id: id.count, section: .users, settingName: .user(peerId), value: true, text: "📣 \(title)", enabled: true))
++    }
++    if users.isEmpty {
++        entries.append(.notice(id: id.count, section: .users, text: "Список пока пуст. Откройте профиль нужного человека и включите «Уведомлять, когда в сети»."))
++    } else {
++        entries.append(.notice(id: id.count, section: .users, text: "Чтобы удалить человека из списка, выключите переключатель рядом с его именем."))
++    }
++
++    let history = SGSimpleSettings.shared.onlineMonitorHistory(accountPeerId: accountPeerId)
++    entries.append(.header(id: id.count, section: .history, text: "ПОСЛЕДНИЕ ВХОДЫ", badge: nil))
++    if history.isEmpty {
++        entries.append(.notice(id: id.count, section: .history, text: "Срабатываний пока не было."))
++    } else {
++        let formatter = DateFormatter()
++        formatter.locale = Locale(identifier: "ru_RU")
++        formatter.dateFormat = "dd.MM, HH:mm:ss"
++        let text = history.prefix(20).map { event in
++            return "📣 \(event.title) — \(formatter.string(from: Date(timeIntervalSince1970: event.timestamp)))"
++        }.joined(separator: "\n")
++        entries.append(.notice(id: id.count, section: .history, text: text))
++    }
++
++    entries.append(.header(id: id.count, section: .info, text: "КАК ЭТО РАБОТАЕТ", badge: nil))
++    entries.append(.action(id: id.count, section: .info, actionType: .testNotification, text: "Отправить тестовое уведомление", kind: .generic))
++    entries.append(.notice(id: id.count, section: .info, text: "Swiftgram отправит уведомление при переходе пользователя из офлайна в онлайн. Работает только для статусов, которые Telegram показывает вашему аккаунту, и пока iOS разрешает приложению работать в фоне."))
++    return entries
++}
++
++public func sgOnlineMonitorController(context: AccountContext) -> ViewController {
++    let updatePromise = ValuePromise(true, ignoreRepeated: false)
++    let arguments = SGItemListArguments<SGOnlineMonitorToggle, SGOnlineMonitorSlider, SGOnlineMonitorSelector, SGOnlineMonitorLink, SGOnlineMonitorAction>(context: context, setBoolValue: { setting, value in
++        switch setting {
++        case let .user(peerId):
++            guard !value else {
++                return
++            }
++            let accountPeerId = context.account.peerId.toInt64()
++            let title = SGSimpleSettings.shared.onlineMonitorUsers(accountPeerId: accountPeerId)[peerId] ?? "Пользователь"
++            SGSimpleSettings.shared.setOnlineMonitorUser(accountPeerId: accountPeerId, peerId: peerId, title: title, enabled: false)
++            NotificationCenter.default.post(name: .sgOnlineMonitorSettingsChanged, object: nil)
++            updatePromise.set(true)
++        }
++    }, action: { action in
++        switch action {
++        case .testNotification:
++            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge], completionHandler: { granted, _ in
++                guard granted else {
++                    return
++                }
++                let content = UNMutableNotificationContent()
++                content.title = "Swiftgram Neon"
++                content.body = "📣 Тест: уведомления о входе в сеть работают"
++                content.sound = .default
++                content.userInfo = [
++                    "userId": Int(context.account.peerId.toInt64()),
++                    "swiftgramOnlineMonitor": true
++                ]
++                let request = UNNotificationRequest(identifier: "swiftgram-online-test-\(Int(Date().timeIntervalSince1970))", content: content, trigger: nil)
++                UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
++            })
++        }
++    })
++
++    let signal = combineLatest(context.sharedContext.presentationData, updatePromise.get())
++    |> map { presentationData, _ -> (ItemListControllerState, (ItemListNodeState, Any)) in
++        let entries = sgOnlineMonitorEntries(context: context)
++        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text("Контроль онлайна"), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
++        let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks, ensureVisibleItemTag: nil, initialScrollToItem: nil)
++        return (controllerState, (listState, arguments))
++    }
++    return ItemListController(context: context, state: signal)
++}
 diff --git a/Swiftgram/SGProUI/Sources/SGProUI.swift b/Swiftgram/SGProUI/Sources/SGProUI.swift
-index a8001251a2..3b710ddcbc 100644
+index a8001251a2..b54c619a41 100644
 --- a/Swiftgram/SGProUI/Sources/SGProUI.swift
 +++ b/Swiftgram/SGProUI/Sources/SGProUI.swift
 @@ -20,6 +20,7 @@ import SGLogging
@@ -51,10 +314,11 @@ index a8001251a2..3b710ddcbc 100644
      case appearance
      case notifications
      case footer
-@@ -28,12 +29,18 @@ private enum SGProControllerSection: Int32, SGItemListSection {
+@@ -28,12 +29,19 @@ private enum SGProControllerSection: Int32, SGItemListSection {
  private enum SGProDisclosureLink: String {
      case sessionBackupManager
      case messageFilter
++    case neonAudio
 +    case onlineMonitor
      case appIcons
      case appBages
@@ -70,7 +334,7 @@ index a8001251a2..3b710ddcbc 100644
  }
  
  private enum SGProOneFromManySetting: String {
-@@ -45,7 +52,7 @@ private enum SGProAction {
+@@ -45,7 +53,7 @@ private enum SGProAction {
      case resetIAP
  }
  
@@ -79,10 +343,11 @@ index a8001251a2..3b710ddcbc 100644
  
  private func SGProControllerEntries(presentationData: PresentationData) -> [SGProControllerEntry] {
      var entries: [SGProControllerEntry] = []
-@@ -55,7 +62,14 @@ private func SGProControllerEntries(presentationData: PresentationData) -> [SGPr
+@@ -55,7 +63,15 @@ private func SGProControllerEntries(presentationData: PresentationData) -> [SGPr
      
      entries.append(.disclosure(id: id.count, section: .base, link: .sessionBackupManager, text: "SessionBackup.Title".i18n(lang)))
      entries.append(.disclosure(id: id.count, section: .base, link: .messageFilter, text: "MessageFilter.Title".i18n(lang)))
++    entries.append(.disclosure(id: id.count, section: .base, link: .neonAudio, text: "🎧 Аудио Neon — бас и громкость"))
 +    entries.append(.disclosure(id: id.count, section: .base, link: .onlineMonitor, text: "📣 Контроль онлайна"))
      entries.append(.toggle(id: id.count, section: .base, settingName: .inputToolbar, value: SGSimpleSettings.shared.inputToolbar, text: "InputToolbar.Title".i18n(lang), enabled: true))
 +
@@ -94,7 +359,7 @@ index a8001251a2..3b710ddcbc 100644
      
      entries.append(.header(id: id.count, section: .notifications, text: presentationData.strings.Notifications_Title.uppercased(), badge: nil))
      entries.append(.oneFromManySelector(id: id.count, section: .notifications, settingName: .pinnedMessageNotifications, text: "Notifications.PinnedMessages.Title".i18n(lang), value: "Notifications.PinnedMessages.value.\(SGSimpleSettings.shared.pinnedMessageNotifications)".i18n(lang), enabled: true))
-@@ -82,10 +96,21 @@ public func sgProController(context: AccountContext) -> ViewController {
+@@ -82,10 +98,21 @@ public func sgProController(context: AccountContext) -> ViewController {
  
      let simplePromise = ValuePromise(true, ignoreRepeated: false)
      
@@ -117,16 +382,18 @@ index a8001251a2..3b710ddcbc 100644
          }
      }, setOneFromManyValue: { setting in
          let presentationData = context.sharedContext.currentPresentationData.with { $0 }
-@@ -135,6 +160,8 @@ public func sgProController(context: AccountContext) -> ViewController {
+@@ -135,6 +162,10 @@ public func sgProController(context: AccountContext) -> ViewController {
                  pushControllerImpl?(sgSessionBackupManagerController(context: context, presentationData: presentationData))
              case .messageFilter:
                  pushControllerImpl?(sgMessageFilterController(presentationData: presentationData))
++            case .neonAudio:
++                pushControllerImpl?(sgNeonAudioController(context: context))
 +            case .onlineMonitor:
 +                pushControllerImpl?(sgOnlineMonitorController(context: context))
              case .appIcons:
                  pushControllerImpl?(themeSettingsController(context: context, focusOnItemTag: .icon))
              case .appBages:
-@@ -171,7 +198,7 @@ public func sgProController(context: AccountContext) -> ViewController {
+@@ -171,7 +202,7 @@ public func sgProController(context: AccountContext) -> ViewController {
          
          let entries = SGProControllerEntries(presentationData: presentationData)
          
@@ -135,46 +402,71 @@ index a8001251a2..3b710ddcbc 100644
          
          let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks, ensureVisibleItemTag: /*focusOnItemTag*/ nil, initialScrollToItem: nil /* scrollToItem*/ )
          
-@@ -190,5 +217,3 @@ public func sgProController(context: AccountContext) -> ViewController {
+@@ -190,5 +221,3 @@ public func sgProController(context: AccountContext) -> ViewController {
      
      return controller
  }
 -
 -
 diff --git a/Swiftgram/SGSimpleSettings/Sources/SimpleSettings.swift b/Swiftgram/SGSimpleSettings/Sources/SimpleSettings.swift
-index 2db47deb51..fe729b5109 100644
+index 2db47deb51..d80ad439be 100644
 --- a/Swiftgram/SGSimpleSettings/Sources/SimpleSettings.swift
 +++ b/Swiftgram/SGSimpleSettings/Sources/SimpleSettings.swift
-@@ -73,6 +73,8 @@ public class SGSimpleSettings {
+@@ -73,6 +73,12 @@ public class SGSimpleSettings {
              { let _ = self.startTelescopeWithRearCam },
              { let _ = self.hideRecordingButton },
              { let _ = self.inputToolbar },
 +            { let _ = self.curvedScreenEnabled },
 +            { let _ = self.curvedScreenIntensity },
++            { let _ = self.neonAudioPreset },
++            { let _ = self.neonAudioSpeakerBass },
++            { let _ = self.neonAudioHeadphonesBass },
++            { let _ = self.neonAudioLoudness },
              { let _ = self.dismissedSGSuggestions },
              { let _ = self.customAppBadge }
          ]
-@@ -159,6 +161,10 @@ public class SGSimpleSettings {
+@@ -159,6 +165,14 @@ public class SGSimpleSettings {
          case legacyNotificationsFix
          case messageFilterKeywords
          case inputToolbar
 +        case curvedScreenEnabled
 +        case curvedScreenIntensity
++        case neonAudioPreset
++        case neonAudioSpeakerBass
++        case neonAudioHeadphonesBass
++        case neonAudioLoudness
 +        case onlineMonitorUsers
 +        case onlineMonitorHistory
          case pinnedMessageNotifications
          case mentionsAndRepliesNotifications
          case primaryUserId
-@@ -315,6 +321,8 @@ public class SGSimpleSettings {
+@@ -250,6 +264,12 @@ public class SGSimpleSettings {
+         case snow
+         case lightning
+     }
++
++    public enum NeonAudioPreset: String, CaseIterable {
++        case normal
++        case bass
++        case deepBass
++    }
+     
+     public static let defaultValues: [String: Any] = [
+         Keys.hidePhoneInSettings.rawValue: true,
+@@ -315,6 +335,12 @@ public class SGSimpleSettings {
          Keys.videoPIPSwipeDirection.rawValue: VideoPIPSwipeDirection.up.rawValue,
          Keys.messageFilterKeywords.rawValue: [],
          Keys.inputToolbar.rawValue: false,
 +        Keys.curvedScreenEnabled.rawValue: true,
 +        Keys.curvedScreenIntensity.rawValue: 45,
++        Keys.neonAudioPreset.rawValue: NeonAudioPreset.bass.rawValue,
++        Keys.neonAudioSpeakerBass.rawValue: 55,
++        Keys.neonAudioHeadphonesBass.rawValue: 75,
++        Keys.neonAudioLoudness.rawValue: 25,
          Keys.primaryUserId.rawValue: "",
          Keys.dismissedSGSuggestions.rawValue: [],
          Keys.duckyAppIconAvailable.rawValue: true,
-@@ -554,6 +562,12 @@ public class SGSimpleSettings {
+@@ -554,6 +580,24 @@ public class SGSimpleSettings {
      @UserDefault(key: Keys.inputToolbar.rawValue)
      public var inputToolbar: Bool
  
@@ -184,16 +476,35 @@ index 2db47deb51..fe729b5109 100644
 +    @UserDefault(key: Keys.curvedScreenIntensity.rawValue)
 +    public var curvedScreenIntensity: Int32
 +
++    @UserDefault(key: Keys.neonAudioPreset.rawValue)
++    public var neonAudioPreset: String
++
++    @UserDefault(key: Keys.neonAudioSpeakerBass.rawValue)
++    public var neonAudioSpeakerBass: Int32
++
++    @UserDefault(key: Keys.neonAudioHeadphonesBass.rawValue)
++    public var neonAudioHeadphonesBass: Int32
++
++    @UserDefault(key: Keys.neonAudioLoudness.rawValue)
++    public var neonAudioLoudness: Int32
++
      @UserDefault(key: Keys.sendWithReturnKey.rawValue)
      public var sendWithReturnKey: Bool
      
-@@ -594,6 +608,85 @@ public class SGSimpleSettings {
+@@ -594,6 +638,92 @@ public class SGSimpleSettings {
      public var tabBarSearchEnabled: Bool
  }
  
 +public extension Notification.Name {
 +    static let sgCurvedScreenSettingsChanged = Notification.Name("SwiftgramCurvedScreenSettingsChanged")
++    static let sgNeonAudioSettingsChanged = Notification.Name("SwiftgramNeonAudioSettingsChanged")
 +    static let sgOnlineMonitorSettingsChanged = Notification.Name("SwiftgramOnlineMonitorSettingsChanged")
++}
++
++public extension SGSimpleSettings {
++    var neonAudioPresetValue: NeonAudioPreset {
++        return NeonAudioPreset(rawValue: self.neonAudioPreset) ?? .normal
++    }
 +}
 +
 +public struct SGOnlineMonitorEvent {
@@ -326,6 +637,234 @@ index ea3559dd7b..a14cc04f8a 100644
      <key>CFBundlePackageType</key>
      <string>APPL</string>
      <key>CFBundleSignature</key>
+diff --git a/submodules/MediaPlayer/Sources/MediaPlayerAudioRenderer.swift b/submodules/MediaPlayer/Sources/MediaPlayerAudioRenderer.swift
+index 9145478f6b..62d6df25c1 100644
+--- a/submodules/MediaPlayer/Sources/MediaPlayerAudioRenderer.swift
++++ b/submodules/MediaPlayer/Sources/MediaPlayerAudioRenderer.swift
+@@ -4,6 +4,7 @@ import CoreMedia
+ import AVFoundation
+ import TelegramCore
+ import TelegramAudio
++import SGSimpleSettings
+ 
+ private enum AudioPlayerRendererState {
+     case paused
+@@ -236,7 +237,10 @@ private final class AudioPlayerRendererContext {
+     var timePitchAudioUnit: AudioComponentInstance?
+     var mixerAudioUnit: AudioComponentInstance?
+     var equalizerAudioUnit: AudioComponentInstance?
++    var dynamicsAudioUnit: AudioComponentInstance?
+     var outputAudioUnit: AudioComponentInstance?
++    var audioSettingsObserver: NSObjectProtocol?
++    var audioRouteObserver: NSObjectProtocol?
+     
+     var bufferContextId: Int32!
+     let bufferContext: Atomic<AudioPlayerRendererBufferContext>
+@@ -256,9 +260,7 @@ private final class AudioPlayerRendererContext {
+                 if let audioSessionControl = self.audioSessionControl {
+                     audioSessionControl.setOutputMode(self.forceAudioToSpeaker ? .speakerIfNoHeadphones : .system)
+                 }
+-                if let equalizerAudioUnit = self.equalizerAudioUnit, self.forAudioVideoMessage && !self.ambient {
+-                    AudioUnitSetParameter(equalizerAudioUnit, kAUNBandEQParam_GlobalGain, kAudioUnitScope_Global, 0, self.forceAudioToSpeaker ? 0.0 : 5.0, 0)
+-                }
++                self.applyNeonAudioSettings()
+             }
+         }
+     }
+@@ -305,12 +307,32 @@ private final class AudioPlayerRendererContext {
+                 }
+             }
+         }
++
++        self.audioSettingsObserver = NotificationCenter.default.addObserver(forName: .sgNeonAudioSettingsChanged, object: nil, queue: nil, using: { [weak self] _ in
++            audioPlayerRendererQueue.async {
++                self?.applyNeonAudioSettings()
++            }
++        })
++        #if os(iOS)
++        self.audioRouteObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: nil, using: { [weak self] _ in
++            audioPlayerRendererQueue.async {
++                self?.applyNeonAudioSettings()
++            }
++        })
++        #endif
+     }
+     
+     deinit {
+         assert(audioPlayerRendererQueue.isCurrent())
+         
+         self.audioSessionDisposable.dispose()
++
++        if let audioSettingsObserver = self.audioSettingsObserver {
++            NotificationCenter.default.removeObserver(audioSettingsObserver)
++        }
++        if let audioRouteObserver = self.audioRouteObserver {
++            NotificationCenter.default.removeObserver(audioRouteObserver)
++        }
+         
+         unregisterPlayerRendererBufferContext(self.bufferContextId)
+         
+@@ -336,6 +358,76 @@ private final class AudioPlayerRendererContext {
+             AudioUnitSetParameter(mixerAudioUnit, kMultiChannelMixerParam_Volume, kAudioUnitScope_Input, 0, Float32(volume) * (self.soundMuted ? 0.0 : 1.0), 0)
+         }
+     }
++
++    private func isHeadphonesOutput() -> Bool {
++        #if os(iOS)
++        let headphonePorts: Set<AVAudioSession.Port> = [
++            .headphones,
++            .bluetoothA2DP,
++            .bluetoothHFP,
++            .bluetoothLE,
++            .usbAudio,
++            .carAudio,
++            .airPlay
++        ]
++        return AVAudioSession.sharedInstance().currentRoute.outputs.contains(where: { headphonePorts.contains($0.portType) })
++        #else
++        return false
++        #endif
++    }
++
++    private func configureEqualizerBand(_ equalizerAudioUnit: AudioComponentInstance, index: UInt32, filterType: AudioUnitParameterValue, frequency: AudioUnitParameterValue, gain: AudioUnitParameterValue, bandwidth: AudioUnitParameterValue, active: Bool) {
++        AudioUnitSetParameter(equalizerAudioUnit, kAUNBandEQParam_BypassBand + index, kAudioUnitScope_Global, 0, active ? 0.0 : 1.0, 0)
++        AudioUnitSetParameter(equalizerAudioUnit, kAUNBandEQParam_FilterType + index, kAudioUnitScope_Global, 0, filterType, 0)
++        AudioUnitSetParameter(equalizerAudioUnit, kAUNBandEQParam_Frequency + index, kAudioUnitScope_Global, 0, frequency, 0)
++        AudioUnitSetParameter(equalizerAudioUnit, kAUNBandEQParam_Gain + index, kAudioUnitScope_Global, 0, gain, 0)
++        AudioUnitSetParameter(equalizerAudioUnit, kAUNBandEQParam_Bandwidth + index, kAudioUnitScope_Global, 0, bandwidth, 0)
++    }
++
++    private func applyNeonAudioSettings() {
++        guard let equalizerAudioUnit = self.equalizerAudioUnit, let dynamicsAudioUnit = self.dynamicsAudioUnit else {
++            return
++        }
++
++        let settings = SGSimpleSettings.shared
++        let preset = settings.neonAudioPresetValue
++        let strengthValue = self.isHeadphonesOutput() ? settings.neonAudioHeadphonesBass : settings.neonAudioSpeakerBass
++        let strength = AudioUnitParameterValue(max(0, min(100, strengthValue))) / 100.0
++        let loudness = AudioUnitParameterValue(max(0, min(100, settings.neonAudioLoudness))) / 100.0
++        let active = preset != .normal && strength > 0.0
++
++        var frequencies: [AudioUnitParameterValue] = [75.0, 150.0, 320.0, 5000.0]
++        var gains: [AudioUnitParameterValue] = [0.0, 0.0, 0.0, 0.0]
++        switch preset {
++        case .normal:
++            break
++        case .bass:
++            gains = [4.5 * strength, 3.0 * strength, -0.7 * strength, 0.4 * strength]
++        case .deepBass:
++            frequencies = [55.0, 115.0, 250.0, 4200.0]
++            gains = [7.0 * strength, 5.0 * strength, 1.5 * strength, 0.6 * strength]
++        }
++
++        // AUNBandEQ filter types: parametric = 0, low shelf = 7, high shelf = 8.
++        self.configureEqualizerBand(equalizerAudioUnit, index: 0, filterType: 7.0, frequency: frequencies[0], gain: gains[0], bandwidth: 0.5, active: active)
++        self.configureEqualizerBand(equalizerAudioUnit, index: 1, filterType: 0.0, frequency: frequencies[1], gain: gains[1], bandwidth: 0.8, active: active)
++        self.configureEqualizerBand(equalizerAudioUnit, index: 2, filterType: 0.0, frequency: frequencies[2], gain: gains[2], bandwidth: 0.9, active: active)
++        self.configureEqualizerBand(equalizerAudioUnit, index: 3, filterType: 8.0, frequency: frequencies[3], gain: gains[3], bandwidth: 0.6, active: active)
++
++        let maximumBoost = gains.max() ?? 0.0
++        let legacyVoiceGain: AudioUnitParameterValue = self.forAudioVideoMessage && !self.ambient && !self.forceAudioToSpeaker ? 5.0 : 0.0
++        let equalizerGlobalGain: AudioUnitParameterValue = active ? -min(4.0, maximumBoost * 0.55) : legacyVoiceGain
++        AudioUnitSetParameter(equalizerAudioUnit, kAUNBandEQParam_GlobalGain, kAudioUnitScope_Global, 0, equalizerGlobalGain, 0)
++
++        var bypassDynamics: UInt32 = active || loudness > 0.0 ? 0 : 1
++        AudioUnitSetProperty(dynamicsAudioUnit, kAudioUnitProperty_BypassEffect, kAudioUnitScope_Global, 0, &bypassDynamics, UInt32(MemoryLayout<UInt32>.size))
++        AudioUnitSetParameter(dynamicsAudioUnit, kDynamicsProcessorParam_Threshold, kAudioUnitScope_Global, 0, -5.0 - loudness * 3.0, 0)
++        AudioUnitSetParameter(dynamicsAudioUnit, kDynamicsProcessorParam_HeadRoom, kAudioUnitScope_Global, 0, 1.0, 0)
++        AudioUnitSetParameter(dynamicsAudioUnit, kDynamicsProcessorParam_ExpansionRatio, kAudioUnitScope_Global, 0, 1.0, 0)
++        AudioUnitSetParameter(dynamicsAudioUnit, kDynamicsProcessorParam_AttackTime, kAudioUnitScope_Global, 0, 0.002, 0)
++        AudioUnitSetParameter(dynamicsAudioUnit, kDynamicsProcessorParam_ReleaseTime, kAudioUnitScope_Global, 0, 0.12, 0)
++        AudioUnitSetParameter(dynamicsAudioUnit, kDynamicsProcessorParam_MasterGain, kAudioUnitScope_Global, 0, loudness * 4.0, 0)
++    }
+     
+     fileprivate func setRate(_ rate: Double) {
+         assert(audioPlayerRendererQueue.isCurrent())
+@@ -539,6 +631,15 @@ private final class AudioPlayerRendererContext {
+             guard AUGraphAddNode(audioGraph, &equalizerDescription, &equalizerNode) == noErr else {
+                 return
+             }
++
++            var dynamicsNode: AUNode = 0
++            var dynamicsDescription = AudioComponentDescription()
++            dynamicsDescription.componentType = kAudioUnitType_Effect
++            dynamicsDescription.componentSubType = kAudioUnitSubType_DynamicsProcessor
++            dynamicsDescription.componentManufacturer = kAudioUnitManufacturer_Apple
++            guard AUGraphAddNode(audioGraph, &dynamicsDescription, &dynamicsNode) == noErr else {
++                return
++            }
+             
+             var outputNode: AUNode = 0
+             var outputDesc = AudioComponentDescription()
+@@ -571,7 +672,11 @@ private final class AudioPlayerRendererContext {
+                 return
+             }
+             
+-            guard AUGraphConnectNodeInput(audioGraph, equalizerNode, 0, outputNode, 0) == noErr else {
++            guard AUGraphConnectNodeInput(audioGraph, equalizerNode, 0, dynamicsNode, 0) == noErr else {
++                return
++            }
++
++            guard AUGraphConnectNodeInput(audioGraph, dynamicsNode, 0, outputNode, 0) == noErr else {
+                 return
+             }
+             
+@@ -595,11 +700,15 @@ private final class AudioPlayerRendererContext {
+             guard AUGraphNodeInfo(audioGraph, equalizerNode, &equalizerDescription, &maybeEqualizerAudioUnit) == noErr, let equalizerAudioUnit = maybeEqualizerAudioUnit else {
+                 return
+             }
+-  
+-            if self.forAudioVideoMessage && !self.ambient {
+-                AudioUnitSetParameter(equalizerAudioUnit, kAUNBandEQParam_GlobalGain, kAudioUnitScope_Global, 0, self.forceAudioToSpeaker ? 0.0 : 12.0, 0)
+-            } else if self.soundMuted {
+-                AudioUnitSetParameter(equalizerAudioUnit, kAUNBandEQParam_GlobalGain, kAudioUnitScope_Global, 0, 0.0, 0)
++
++            var numberOfEqualizerBands: UInt32 = 4
++            guard AudioUnitSetProperty(equalizerAudioUnit, kAUNBandEQProperty_NumberOfBands, kAudioUnitScope_Global, 0, &numberOfEqualizerBands, UInt32(MemoryLayout<UInt32>.size)) == noErr else {
++                return
++            }
++
++            var maybeDynamicsAudioUnit: AudioComponentInstance?
++            guard AUGraphNodeInfo(audioGraph, dynamicsNode, &dynamicsDescription, &maybeDynamicsAudioUnit) == noErr, let dynamicsAudioUnit = maybeDynamicsAudioUnit else {
++                return
+             }
+             
+             var maybeOutputAudioUnit: AudioComponentInstance?
+@@ -616,6 +725,7 @@ private final class AudioPlayerRendererContext {
+             AudioUnitSetProperty(timePitchAudioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 0, &streamFormat, UInt32(MemoryLayout<AudioStreamBasicDescription>.size))
+             AudioUnitSetProperty(mixerAudioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 0, &streamFormat, UInt32(MemoryLayout<AudioStreamBasicDescription>.size))
+             AudioUnitSetProperty(equalizerAudioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 0, &streamFormat, UInt32(MemoryLayout<AudioStreamBasicDescription>.size))
++            AudioUnitSetProperty(dynamicsAudioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 0, &streamFormat, UInt32(MemoryLayout<AudioStreamBasicDescription>.size))
+             
+             var callbackStruct = AURenderCallbackStruct()
+             callbackStruct.inputProc = rendererInputProc
+@@ -635,6 +745,7 @@ private final class AudioPlayerRendererContext {
+             AudioUnitSetProperty(timePitchAudioUnit, kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitScope_Global, 0, &maximumFramesPerSlice, 4)
+             AudioUnitSetProperty(mixerAudioUnit, kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitScope_Global, 0, &maximumFramesPerSlice, 4)
+             AudioUnitSetProperty(equalizerAudioUnit, kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitScope_Global, 0, &maximumFramesPerSlice, 4)
++            AudioUnitSetProperty(dynamicsAudioUnit, kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitScope_Global, 0, &maximumFramesPerSlice, 4)
+             AudioUnitSetProperty(outputAudioUnit, kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitScope_Global, 0, &maximumFramesPerSlice, 4)
+             
+             AudioUnitSetParameter(mixerAudioUnit, kMultiChannelMixerParam_Volume, kAudioUnitScope_Input, 0, Float32(self.volume) * (self.soundMuted ? 0.0 : 1.0), 0)
+@@ -649,7 +760,9 @@ private final class AudioPlayerRendererContext {
+             self.timePitchAudioUnit = timePitchAudioUnit
+             self.mixerAudioUnit = mixerAudioUnit
+             self.equalizerAudioUnit = equalizerAudioUnit
++            self.dynamicsAudioUnit = dynamicsAudioUnit
+             self.outputAudioUnit = outputAudioUnit
++            self.applyNeonAudioSettings()
+         }
+     }
+     
+@@ -704,6 +817,7 @@ private final class AudioPlayerRendererContext {
+             self.timePitchAudioUnit = nil
+             self.mixerAudioUnit = nil
+             self.equalizerAudioUnit = nil
++            self.dynamicsAudioUnit = nil
+             self.outputAudioUnit = nil
+         }
+     }
 diff --git a/submodules/SettingsUI/Sources/Themes/ThemeColorPresets.swift b/submodules/SettingsUI/Sources/Themes/ThemeColorPresets.swift
 index afd1531610..bd21139df9 100644
 --- a/submodules/SettingsUI/Sources/Themes/ThemeColorPresets.swift
@@ -1110,128 +1649,3 @@ index 71870d7b89..0028603d89 100644
                                      navigationController?.pushViewController(context.sharedContext.makeSGProController(context: context))
                                  } else {
                                      if let lastViewController = navigationController?.viewControllers.last as? ViewController {
-diff --git a/Swiftgram/SGProUI/Sources/OnlineMonitorController.swift b/Swiftgram/SGProUI/Sources/OnlineMonitorController.swift
-new file mode 100644
-index 0000000000..0fd5878f92
---- /dev/null
-+++ b/Swiftgram/SGProUI/Sources/OnlineMonitorController.swift
-@@ -0,0 +1,119 @@
-+import Foundation
-+import AccountContext
-+import Display
-+import ItemListUI
-+import Postbox
-+import SGItemListUI
-+import SGSimpleSettings
-+import SwiftSignalKit
-+import TelegramPresentationData
-+import UserNotifications
-+
-+private enum SGOnlineMonitorSection: Int32, SGItemListSection {
-+    case users
-+    case history
-+    case info
-+}
-+
-+private enum SGOnlineMonitorToggle: Hashable {
-+    case user(Int64)
-+}
-+
-+private enum SGOnlineMonitorSlider: Hashable {
-+    case unused
-+}
-+
-+private enum SGOnlineMonitorSelector: Hashable {
-+    case unused
-+}
-+
-+private enum SGOnlineMonitorLink: Hashable {
-+    case unused
-+}
-+
-+private enum SGOnlineMonitorAction: Hashable {
-+    case testNotification
-+}
-+
-+private typealias SGOnlineMonitorEntry = SGItemListUIEntry<SGOnlineMonitorSection, SGOnlineMonitorToggle, SGOnlineMonitorSlider, SGOnlineMonitorSelector, SGOnlineMonitorLink, SGOnlineMonitorAction>
-+
-+private func sgOnlineMonitorEntries(context: AccountContext) -> [SGOnlineMonitorEntry] {
-+    var entries: [SGOnlineMonitorEntry] = []
-+    let id = SGItemListCounter()
-+    let accountPeerId = context.account.peerId.toInt64()
-+    let users = SGSimpleSettings.shared.onlineMonitorUsers(accountPeerId: accountPeerId)
-+
-+    entries.append(.header(id: id.count, section: .users, text: "ОТСЛЕЖИВАЕМЫЕ ПОЛЬЗОВАТЕЛИ", badge: users.isEmpty ? nil : "\(users.count)"))
-+    for (peerId, title) in users.sorted(by: { $0.value.localizedCaseInsensitiveCompare($1.value) == .orderedAscending }) {
-+        entries.append(.toggle(id: id.count, section: .users, settingName: .user(peerId), value: true, text: "📣 \(title)", enabled: true))
-+    }
-+    if users.isEmpty {
-+        entries.append(.notice(id: id.count, section: .users, text: "Список пока пуст. Откройте профиль нужного человека и включите «Уведомлять, когда в сети»."))
-+    } else {
-+        entries.append(.notice(id: id.count, section: .users, text: "Чтобы удалить человека из списка, выключите переключатель рядом с его именем."))
-+    }
-+
-+    let history = SGSimpleSettings.shared.onlineMonitorHistory(accountPeerId: accountPeerId)
-+    entries.append(.header(id: id.count, section: .history, text: "ПОСЛЕДНИЕ ВХОДЫ", badge: nil))
-+    if history.isEmpty {
-+        entries.append(.notice(id: id.count, section: .history, text: "Срабатываний пока не было."))
-+    } else {
-+        let formatter = DateFormatter()
-+        formatter.locale = Locale(identifier: "ru_RU")
-+        formatter.dateFormat = "dd.MM, HH:mm:ss"
-+        let text = history.prefix(20).map { event in
-+            return "📣 \(event.title) — \(formatter.string(from: Date(timeIntervalSince1970: event.timestamp)))"
-+        }.joined(separator: "\n")
-+        entries.append(.notice(id: id.count, section: .history, text: text))
-+    }
-+
-+    entries.append(.header(id: id.count, section: .info, text: "КАК ЭТО РАБОТАЕТ", badge: nil))
-+    entries.append(.action(id: id.count, section: .info, actionType: .testNotification, text: "Отправить тестовое уведомление", kind: .generic))
-+    entries.append(.notice(id: id.count, section: .info, text: "Swiftgram отправит уведомление при переходе пользователя из офлайна в онлайн. Работает только для статусов, которые Telegram показывает вашему аккаунту, и пока iOS разрешает приложению работать в фоне."))
-+    return entries
-+}
-+
-+public func sgOnlineMonitorController(context: AccountContext) -> ViewController {
-+    let updatePromise = ValuePromise(true, ignoreRepeated: false)
-+    let arguments = SGItemListArguments<SGOnlineMonitorToggle, SGOnlineMonitorSlider, SGOnlineMonitorSelector, SGOnlineMonitorLink, SGOnlineMonitorAction>(context: context, setBoolValue: { setting, value in
-+        switch setting {
-+        case let .user(peerId):
-+            guard !value else {
-+                return
-+            }
-+            let accountPeerId = context.account.peerId.toInt64()
-+            let title = SGSimpleSettings.shared.onlineMonitorUsers(accountPeerId: accountPeerId)[peerId] ?? "Пользователь"
-+            SGSimpleSettings.shared.setOnlineMonitorUser(accountPeerId: accountPeerId, peerId: peerId, title: title, enabled: false)
-+            NotificationCenter.default.post(name: .sgOnlineMonitorSettingsChanged, object: nil)
-+            updatePromise.set(true)
-+        }
-+    }, action: { action in
-+        switch action {
-+        case .testNotification:
-+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge], completionHandler: { granted, _ in
-+                guard granted else {
-+                    return
-+                }
-+                let content = UNMutableNotificationContent()
-+                content.title = "Swiftgram Neon"
-+                content.body = "📣 Тест: уведомления о входе в сеть работают"
-+                content.sound = .default
-+                content.userInfo = [
-+                    "userId": Int(context.account.peerId.toInt64()),
-+                    "swiftgramOnlineMonitor": true
-+                ]
-+                let request = UNNotificationRequest(identifier: "swiftgram-online-test-\(Int(Date().timeIntervalSince1970))", content: content, trigger: nil)
-+                UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
-+            })
-+        }
-+    })
-+
-+    let signal = combineLatest(context.sharedContext.presentationData, updatePromise.get())
-+    |> map { presentationData, _ -> (ItemListControllerState, (ItemListNodeState, Any)) in
-+        let entries = sgOnlineMonitorEntries(context: context)
-+        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text("Контроль онлайна"), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
-+        let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks, ensureVisibleItemTag: nil, initialScrollToItem: nil)
-+        return (controllerState, (listState, arguments))
-+    }
-+    return ItemListController(context: context, state: signal)
-+}

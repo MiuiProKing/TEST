@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - build/neon-audio
     paths:
       - "swiftgram-neon/**"
       - ".github/workflows/swiftgram-neon.yml"
