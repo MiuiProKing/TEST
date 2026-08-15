@@ -1,7 +1,35 @@
 diff --git a/Swiftgram/SGProUI/Sources/AppBadgeSelectorController.swift b/Swiftgram/SGProUI/Sources/AppBadgeSelectorController.swift
-index dd98590585..2039244103 100644
+index dd98590585..4d0eee3e0f 100644
 --- a/Swiftgram/SGProUI/Sources/AppBadgeSelectorController.swift
 +++ b/Swiftgram/SGProUI/Sources/AppBadgeSelectorController.swift
+@@ -17,19 +17,19 @@ struct AppBadge: Identifiable, Hashable {
+ 
+ func getAvailableAppBadges() -> [AppBadge] {
+     var appBadges: [AppBadge] = [
+-        .init(displayName: "Default", assetName: "Components/AppBadge"),
+-        .init(displayName: "Sky", assetName: "SkyAppBadge"),
+-        .init(displayName: "Night", assetName: "NightAppBadge"),
+-        .init(displayName: "Titanium", assetName: "TitaniumAppBadge"),
+-        .init(displayName: "Pro", assetName: "ProAppBadge"),
+-        .init(displayName: "Day", assetName: "DayAppBadge"),
++        .init(displayName: "По умолчанию", assetName: "Components/AppBadge"),
++        .init(displayName: "Небо", assetName: "SkyAppBadge"),
++        .init(displayName: "Ночь", assetName: "NightAppBadge"),
++        .init(displayName: "Титан", assetName: "TitaniumAppBadge"),
++        .init(displayName: "Про", assetName: "ProAppBadge"),
++        .init(displayName: "День", assetName: "DayAppBadge"),
+     ]
+ 
+     if SGSimpleSettings.shared.duckyAppIconAvailable {
+-        appBadges.append(.init(displayName: "Ducky", assetName: "DuckyAppBadge"))
++        appBadges.append(.init(displayName: "Утёнок", assetName: "DuckyAppBadge"))
+     }
+     appBadges += [
+-        .init(displayName: "Sparkling", assetName: "SparklingAppBadge"),
++        .init(displayName: "Сияние", assetName: "SparklingAppBadge"),
+     ]
+ 
+     return appBadges
 @@ -74,7 +74,7 @@ struct AppBadgeSettingsView: View {
      private func onSelectBadge(_ badge: AppBadge) {
          self.selectedBadge = badge
@@ -83,33 +111,309 @@ index ea3559dd7b..a14cc04f8a 100644
      <string>APPL</string>
      <key>CFBundleSignature</key>
 diff --git a/submodules/SettingsUI/Sources/Themes/ThemeColorPresets.swift b/submodules/SettingsUI/Sources/Themes/ThemeColorPresets.swift
-index afd1531610..a2ceeb4576 100644
+index afd1531610..bd21139df9 100644
 --- a/submodules/SettingsUI/Sources/Themes/ThemeColorPresets.swift
 +++ b/submodules/SettingsUI/Sources/Themes/ThemeColorPresets.swift
-@@ -38,6 +38,18 @@ var dayColorPresets: [PresentationThemeAccentColor] = [
+@@ -37,7 +37,20 @@ var dayColorPresets: [PresentationThemeAccentColor] = [
+     PresentationThemeAccentColor(index: 104, baseColor: .preset, accentColor: 0xea8ced, bubbleColors: [0xea8ced, 0x00c2ed], wallpaper: nil)
  ]
  
- var nightColorPresets: [PresentationThemeAccentColor] = [
-+    // Swiftgram Neon: AMOLED Cyan
-+    PresentationThemeAccentColor(index: 201, baseColor: .preset, accentColor: 0x00F0FF, bubbleColors: [0x003B46, 0x008A99], wallpaper: .color(0x000000)),
+-var nightColorPresets: [PresentationThemeAccentColor] = [
++struct SwiftgramNeonThemePreset: Equatable {
++    let title: String
++    let accentColor: PresentationThemeAccentColor
++}
 +
-+    // Swiftgram Neon: AMOLED Purple
-+    PresentationThemeAccentColor(index: 202, baseColor: .preset, accentColor: 0xB026FF, bubbleColors: [0x26003D, 0x67119B], wallpaper: .color(0x000000)),
++let swiftgramNeonThemePresets: [SwiftgramNeonThemePreset] = [
++    SwiftgramNeonThemePreset(title: "Неоновый голубой", accentColor: PresentationThemeAccentColor(index: 201, baseColor: .preset, accentColor: 0x00F0FF, bubbleColors: [0x003B46, 0x008A99], wallpaper: .color(0x000000))),
++    SwiftgramNeonThemePreset(title: "Неоновый фиолетовый", accentColor: PresentationThemeAccentColor(index: 202, baseColor: .preset, accentColor: 0xB026FF, bubbleColors: [0x26003D, 0x67119B], wallpaper: .color(0x000000))),
++    SwiftgramNeonThemePreset(title: "Неоновый зелёный", accentColor: PresentationThemeAccentColor(index: 203, baseColor: .preset, accentColor: 0x39FF14, bubbleColors: [0x0A3405, 0x167A08], wallpaper: .color(0x000000))),
++    SwiftgramNeonThemePreset(title: "Неоновый розовый", accentColor: PresentationThemeAccentColor(index: 204, baseColor: .preset, accentColor: 0xFF2BD6, bubbleColors: [0x3D082F, 0x941678], wallpaper: .color(0x000000)))
++]
 +
-+    // Swiftgram Neon: AMOLED Green
-+    PresentationThemeAccentColor(index: 203, baseColor: .preset, accentColor: 0x39FF14, bubbleColors: [0x0A3405, 0x167A08], wallpaper: .color(0x000000)),
-+
-+    // Swiftgram Neon: AMOLED Magenta
-+    PresentationThemeAccentColor(index: 204, baseColor: .preset, accentColor: 0xFF2BD6, bubbleColors: [0x3D082F, 0x941678], wallpaper: .color(0x000000)),
++var nightColorPresets: [PresentationThemeAccentColor] = swiftgramNeonThemePresets.map { $0.accentColor } + [
 +
  //    PresentationThemeAccentColor(index: 101, baseColor: .preset, accentColor: 0x0088ff, bubbleColors: [0x0088ff, 0xff53f4], wallpaper: patternWallpaper(data: .variant4, colors: [0xe4b2ea, 0x8376c2, 0xeab9d9, 0xb493e6], intensity: -35, rotation: nil)),
      PresentationThemeAccentColor(index: 102, baseColor: .preset, accentColor: 0x00b09b, bubbleColors: [0xaee946, 0x00b09b], wallpaper: patternWallpaper(data: .variant9, colors: [0xe4b2ea, 0x8376c2, 0xeab9d9, 0xb493e6], intensity: -35, rotation: nil)),
      PresentationThemeAccentColor(index: 103, baseColor: .preset, accentColor: 0xd33213, bubbleColors: [0xf9db00, 0xd33213], wallpaper: patternWallpaper(data: .variant2, colors: [0xfec496, 0xdd6cb9, 0x962fbf, 0x4f5bd5], intensity: -40, rotation: nil)),
+diff --git a/submodules/SettingsUI/Sources/Themes/ThemeSettingsAppIconItem.swift b/submodules/SettingsUI/Sources/Themes/ThemeSettingsAppIconItem.swift
+index d716ca51d5..c571500624 100644
+--- a/submodules/SettingsUI/Sources/Themes/ThemeSettingsAppIconItem.swift
++++ b/submodules/SettingsUI/Sources/Themes/ThemeSettingsAppIconItem.swift
+@@ -373,57 +373,57 @@ class ThemeSettingsAppIconItemNode: ListViewItemNode, ItemListItemNode {
+                         if let image = UIImage(named: icon.imageName, in: getAppBundle(), compatibleWith: nil) {
+                             let selected = icon.name == item.currentIconName
+ 
+-                            var name = "Icon"
++                            var name = "Иконка"
+                             var bordered = true
+                             switch icon.name {
+                                 case "SGDefault":
+                                     name = item.strings.Appearance_AppIconDefault
+                                     bordered = false
+                                 case "SGBlack":
+-                                    name = "Black"
++                                    name = "Чёрная"
+                                     bordered = false
+                                 case "SGLegacy":
+-                                    name = "Legacy"
++                                    name = "Классика"
+                                     bordered = false
+                                 case "SGInverted":
+-                                    name = "Inverted"
++                                    name = "Инверсия"
+                                 case "SGWhite":
+-                                    name = "White"
++                                    name = "Белая"
+                                 case "SGNight":
+-                                    name = "Night"
++                                    name = "Ночная"
+                                     bordered = false
+                                 case "SGSky":
+-                                    name = "Sky"
++                                    name = "Небо"
+                                     bordered = false
+                                 case "SGTitanium":
+-                                    name = "Titanium"
++                                    name = "Титан"
+                                     bordered = false
+                                 case "SGNeon":
+-                                    name = "Neon"
++                                    name = "Неон"
+                                     bordered = false
+                                 case "SGNeonBlue":
+-                                    name = "Neon Blue"
++                                    name = "Синий неон"
+                                     bordered = false
+                                 case "SGGlass":
+-                                    name = "Glass"
++                                    name = "Стекло"
+                                     bordered = false
+                                 case "SGSparkling":
+-                                    name = "Sparkling"
++                                    name = "Сияние"
+                                     bordered = false
+                                 case "SGBeta":
+-                                    name = "β Beta"
++                                    name = "β Бета"
+                                     bordered = false
+                                 case "SGPro":
+-                                    name = "Pro"
++                                    name = "Про"
+                                     bordered = false
+                                 case "SGGold":
+-                                    name = "Gold"
++                                    name = "Золото"
+                                     bordered = false
+                                 case "SGDucky":
+-                                    name = "Ducky"
++                                    name = "Утёнок"
+                                     bordered = false
+                                 case "SGDay":
+-                                    name = "Day"
++                                    name = "Дневная"
+                                     bordered = false
+                                 case "BlueIcon":
+                                     name = item.strings.Appearance_AppIconDefault
+@@ -440,7 +440,7 @@ class ThemeSettingsAppIconItemNode: ListViewItemNode, ItemListItemNode {
+                                     name = item.strings.Appearance_AppIconFilledX
+                                     bordered = false
+                                 case "WhiteFilled":
+-                                    name = "⍺ White"
++                                    name = "⍺ Белая"
+                                 case "New1":
+                                     name = item.strings.Appearance_AppIconNew1
+                                 case "New2":
+@@ -477,4 +477,3 @@ class ThemeSettingsAppIconItemNode: ListViewItemNode, ItemListItemNode {
+         self.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.15, removeOnCompletion: false)
+     }
+ }
+-
 diff --git a/submodules/SettingsUI/Sources/Themes/ThemeSettingsController.swift b/submodules/SettingsUI/Sources/Themes/ThemeSettingsController.swift
-index abaa9a7003..2ff4286b84 100644
+index abaa9a7003..58cb8fb2a8 100644
 --- a/submodules/SettingsUI/Sources/Themes/ThemeSettingsController.swift
 +++ b/submodules/SettingsUI/Sources/Themes/ThemeSettingsController.swift
-@@ -634,7 +634,7 @@ public func themeSettingsController(context: AccountContext, focusOnItemTag: The
+@@ -31,6 +31,7 @@ private final class ThemeSettingsControllerArguments {
+     let openWallpaperSettings: () -> Void
+     let openNameColorSettings: () -> Void
+     let selectAccentColor: (PresentationThemeAccentColor?) -> Void
++    let selectNeonTheme: (PresentationThemeAccentColor) -> Void
+     let openAccentColorPicker: (PresentationThemeReference, Bool) -> Void
+     let toggleNightTheme: (Bool) -> Void
+     let openAutoNightTheme: () -> Void
+@@ -52,6 +53,7 @@ private final class ThemeSettingsControllerArguments {
+         openWallpaperSettings: @escaping () -> Void,
+         openNameColorSettings: @escaping () -> Void,
+         selectAccentColor: @escaping (PresentationThemeAccentColor?) -> Void,
++        selectNeonTheme: @escaping (PresentationThemeAccentColor) -> Void,
+         openAccentColorPicker: @escaping (PresentationThemeReference, Bool) -> Void,
+         toggleNightTheme: @escaping (Bool) -> Void,
+         openAutoNightTheme: @escaping () -> Void,
+@@ -72,6 +74,7 @@ private final class ThemeSettingsControllerArguments {
+         self.openWallpaperSettings = openWallpaperSettings
+         self.openNameColorSettings = openNameColorSettings
+         self.selectAccentColor = selectAccentColor
++        self.selectNeonTheme = selectNeonTheme
+         self.openAccentColorPicker = openAccentColorPicker
+         self.toggleNightTheme = toggleNightTheme
+         self.openAutoNightTheme = openAutoNightTheme
+@@ -90,6 +93,7 @@ private final class ThemeSettingsControllerArguments {
+ 
+ private enum ThemeSettingsControllerSection: Int32 {
+     case chatPreview
++    case neonThemes
+     case nightMode
+     case message
+     case icon
+@@ -127,6 +131,8 @@ private enum ThemeSettingsControllerEntry: ItemListNodeEntry {
+     case chatTheme(PresentationTheme, String)
+     case wallpaper(PresentationTheme, String)
+     case nameColor(PresentationTheme, String, String, PeerNameColors.Colors?, PeerNameColors.Colors?)
++    case neonHeader(PresentationTheme, String)
++    case neonPreset(PresentationTheme, String, PresentationThemeAccentColor, Bool)
+     case autoNight(PresentationTheme, String, Bool, Bool)
+     case autoNightTheme(PresentationTheme, String, String)
+     case textSize(PresentationTheme, String, String)
+@@ -144,6 +150,8 @@ private enum ThemeSettingsControllerEntry: ItemListNodeEntry {
+         switch self {
+         case .themeListHeader, .chatPreview, .themes, .chatTheme, .wallpaper, .nameColor:
+                 return ThemeSettingsControllerSection.chatPreview.rawValue
++            case .neonHeader, .neonPreset:
++                return ThemeSettingsControllerSection.neonThemes.rawValue
+             case .autoNight, .autoNightTheme:
+                 return ThemeSettingsControllerSection.nightMode.rawValue
+             case .textSize, .bubbleSettings:
+@@ -171,30 +179,34 @@ private enum ThemeSettingsControllerEntry: ItemListNodeEntry {
+             return 4
+         case .nameColor:
+             return 5
+-        case .autoNight:
++        case .neonHeader:
+             return 6
++        case let .neonPreset(_, _, accentColor, _):
++            return 7 + max(0, accentColor.index - 201)
++        case .autoNight:
++            return 11
+         case .autoNightTheme:
+-            return 7
++            return 12
+         case .textSize:
+-            return 8
++            return 13
+         case .bubbleSettings:
+-            return 9
++            return 14
+         case .powerSaving:
+-            return 10
++            return 15
+         case .stickersAndEmoji:
+-            return 11
++            return 16
+         case .iconHeader:
+-            return 12
++            return 17
+         case .iconItem:
+-            return 13
++            return 18
+         case .otherHeader:
+-            return 14
++            return 19
+         case .sendWithCmdEnter:
+-            return 15
++            return 20
+         case .showNextMediaOnTap:
+-            return 16
++            return 21
+         case .showNextMediaOnTapInfo:
+-            return 17
++            return 22
+         }
+     }
+     
+@@ -230,6 +242,18 @@ private enum ThemeSettingsControllerEntry: ItemListNodeEntry {
+                 } else {
+                     return false
+                 }
++            case let .neonHeader(lhsTheme, lhsText):
++                if case let .neonHeader(rhsTheme, rhsText) = rhs, lhsTheme === rhsTheme, lhsText == rhsText {
++                    return true
++                } else {
++                    return false
++                }
++            case let .neonPreset(lhsTheme, lhsTitle, lhsAccentColor, lhsSelected):
++                if case let .neonPreset(rhsTheme, rhsTitle, rhsAccentColor, rhsSelected) = rhs, lhsTheme === rhsTheme, lhsTitle == rhsTitle, lhsAccentColor == rhsAccentColor, lhsSelected == rhsSelected {
++                    return true
++                } else {
++                    return false
++                }
+             case let .autoNight(lhsTheme, lhsText, lhsValue, lhsEnabled):
+                 if case let .autoNight(rhsTheme, rhsText, rhsValue, rhsEnabled) = rhs, lhsTheme === rhsTheme, lhsText == rhsText, lhsValue == rhsValue, lhsEnabled == rhsEnabled {
+                     return true
+@@ -350,6 +374,12 @@ private enum ThemeSettingsControllerEntry: ItemListNodeEntry {
+                 return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, title: text, label: "", labelStyle: .image(image: colorImage, size: colorImage.size), sectionId: self.section, style: .blocks, action: {
+                     arguments.openNameColorSettings()
+                 })
++            case let .neonHeader(_, text):
++                return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
++            case let .neonPreset(_, title, accentColor, selected):
++                return ItemListCheckboxItem(presentationData: presentationData, systemStyle: .glass, title: title, style: .right, checked: selected, zeroSeparatorInsets: false, sectionId: self.section, action: {
++                    arguments.selectNeonTheme(accentColor)
++                })
+             case let .autoNight(_, title, value, enabled):
+                 return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: title, value: value, enabled: enabled, sectionId: self.section, style: .blocks, updated: { value in
+                     arguments.toggleNightTheme(value)
+@@ -448,6 +478,14 @@ private func themeSettingsControllerEntries(
+     }
+     let profileColors = profileColor.flatMap { nameColors.getProfile($0, dark: presentationData.theme.overallDarkAppearance, subject: .palette) }
+     entries.append(.nameColor(presentationData.theme, presentationData.strings.Settings_YourColor, accountPeer?.compactDisplayTitle ?? "", colors, profileColors))
++
++    entries.append(.neonHeader(presentationData.theme, "НЕОНОВЫЕ ТЕМЫ — ЧЁРНЫЙ ФОН"))
++    let neonBaseTheme = PresentationThemeReference.builtin(.night)
++    let currentNeonAccent = presentationThemeSettings.themeSpecificAccentColors[neonBaseTheme.index]
++    let neonThemeIsActive = themeReference.generalThemeReference.index == neonBaseTheme.index
++    for preset in swiftgramNeonThemePresets {
++        entries.append(.neonPreset(presentationData.theme, preset.title, preset.accentColor, neonThemeIsActive && currentNeonAccent?.index == preset.accentColor.index))
++    }
+     
+     entries.append(.autoNight(presentationData.theme, strings.Appearance_NightTheme, presentationThemeSettings.automaticThemeSwitchSetting.force, !presentationData.autoNightModeTriggered || presentationThemeSettings.automaticThemeSwitchSetting.force))
+     let autoNightMode: String
+@@ -579,6 +617,35 @@ public func themeSettingsController(context: AccountContext, focusOnItemTag: The
+         pushControllerImpl?(UserAppearanceScreen(context: context))
+     }, selectAccentColor: { accentColor in
+         selectAccentColorImpl?(accentColor)
++    }, selectNeonTheme: { accentColor in
++        let neonThemeReference = PresentationThemeReference.builtin(.night)
++        let _ = updatePresentationThemeSettingsInteractively(accountManager: context.sharedContext.accountManager, { current in
++            var updatedAccentColors = current.themeSpecificAccentColors
++            updatedAccentColors[neonThemeReference.index] = accentColor
++
++            var updatedWallpapers = current.themeSpecificChatWallpapers
++            if let wallpaper = accentColor.wallpaper {
++                updatedWallpapers[coloredThemeIndex(reference: neonThemeReference, accentColor: accentColor)] = wallpaper
++            }
++
++            var updatedAutomaticThemeSwitchSetting = current.automaticThemeSwitchSetting
++            updatedAutomaticThemeSwitchSetting.theme = neonThemeReference
++
++            return PresentationThemeSettings(
++                theme: neonThemeReference,
++                themePreferredBaseTheme: current.themePreferredBaseTheme,
++                themeSpecificAccentColors: updatedAccentColors,
++                themeSpecificChatWallpapers: updatedWallpapers,
++                useSystemFont: current.useSystemFont,
++                fontSize: current.fontSize,
++                listsFontSize: current.listsFontSize,
++                chatBubbleSettings: current.chatBubbleSettings,
++                automaticThemeSwitchSetting: updatedAutomaticThemeSwitchSetting,
++                largeEmoji: current.largeEmoji,
++                reduceMotion: current.reduceMotion
++            )
++        }).start()
++        presentCrossfadeControllerImpl?(true)
+     }, openAccentColorPicker: { themeReference, create in
+         openAccentColorPickerImpl?(themeReference, create)
+     }, toggleNightTheme: { value in
+@@ -634,7 +701,7 @@ public func themeSettingsController(context: AccountContext, focusOnItemTag: The
                  }
                  pushControllerImpl?(controller)
              // MARK: Swiftgram
@@ -118,7 +422,7 @@ index abaa9a7003..2ff4286b84 100644
                  if let payWallController = context.sharedContext.makeSGPayWallController(context: context) {
                      presentControllerImpl?(payWallController, ViewControllerPresentationArguments(presentationAnimation: .modalSheet))
                  } else {
-@@ -1123,7 +1123,7 @@ public func themeSettingsController(context: AccountContext, focusOnItemTag: The
+@@ -1123,7 +1190,7 @@ public func themeSettingsController(context: AccountContext, focusOnItemTag: The
          
          // MARK: Swiftgram
          let sgStatus = sharedData.entries[ApplicationSpecificSharedDataKeys.sgStatus]?.get(SGStatus.self) ?? SGStatus.default
