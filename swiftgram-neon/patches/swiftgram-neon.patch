@@ -1,0 +1,222 @@
+diff --git a/Swiftgram/SGProUI/Sources/AppBadgeSelectorController.swift b/Swiftgram/SGProUI/Sources/AppBadgeSelectorController.swift
+index dd98590585..2039244103 100644
+--- a/Swiftgram/SGProUI/Sources/AppBadgeSelectorController.swift
++++ b/Swiftgram/SGProUI/Sources/AppBadgeSelectorController.swift
+@@ -74,7 +74,7 @@ struct AppBadgeSettingsView: View {
+     private func onSelectBadge(_ badge: AppBadge) {
+         self.selectedBadge = badge
+         let image = UIImage(bundleImageName: selectedBadge.assetName) ?? UIImage(bundleImageName: "Components/AppBadge")
+-        if self.context.sharedContext.immediateSGStatus.status > 1 {
++        if self.context.sharedContext.immediateSGStatus.localFeaturesEnabled {
+             DispatchQueue.main.async {
+                 SGSimpleSettings.shared.customAppBadge = selectedBadge.assetName
+                 self.context.sharedContext.mainWindow?.badgeView.image = image
+diff --git a/Swiftgram/SGProUI/Sources/SGProUI.swift b/Swiftgram/SGProUI/Sources/SGProUI.swift
+index a8001251a2..10180991de 100644
+--- a/Swiftgram/SGProUI/Sources/SGProUI.swift
++++ b/Swiftgram/SGProUI/Sources/SGProUI.swift
+@@ -171,7 +171,7 @@ public func sgProController(context: AccountContext) -> ViewController {
+         
+         let entries = SGProControllerEntries(presentationData: presentationData)
+         
+-        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text("Swiftgram Pro"), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
++        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text("Swiftgram Neon"), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
+         
+         let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks, ensureVisibleItemTag: /*focusOnItemTag*/ nil, initialScrollToItem: nil /* scrollToItem*/ )
+         
+@@ -191,4 +191,3 @@ public func sgProController(context: AccountContext) -> ViewController {
+     return controller
+ }
+ 
+-
+diff --git a/Swiftgram/SGStatus/Sources/SGStatus.swift b/Swiftgram/SGStatus/Sources/SGStatus.swift
+index 6bedd862a5..a72b102d92 100644
+--- a/Swiftgram/SGStatus/Sources/SGStatus.swift
++++ b/Swiftgram/SGStatus/Sources/SGStatus.swift
+@@ -4,6 +4,12 @@ import TelegramCore
+ 
+ public struct SGStatus: Equatable, Codable {
+     public var status: Int64
++
++    /// Local Swiftgram Neon tools are bundled with this custom client and do
++    /// not represent a Telegram Premium or App Store subscription entitlement.
++    public var localFeaturesEnabled: Bool {
++        return true
++    }
+     
+     public static var `default`: SGStatus {
+         return SGStatus(status: 1)
+diff --git a/Telegram/BUILD b/Telegram/BUILD
+index ea3559dd7b..a14cc04f8a 100644
+--- a/Telegram/BUILD
++++ b/Telegram/BUILD
+@@ -649,7 +649,7 @@ plist_fragment(
+     template =
+     """
+     <key>CFBundleDisplayName</key>
+-    <string>Swiftgram</string>
++    <string>Swiftgram Neon</string>
+     """
+ )
+ 
+@@ -990,7 +990,7 @@ plist_fragment(
+     <key>CFBundleIdentifier</key>
+     <string>{telegram_bundle_id}.Share</string>
+     <key>CFBundleName</key>
+-    <string>Swiftgram</string>
++    <string>Swiftgram Neon</string>
+     <key>CFBundlePackageType</key>
+     <string>XPC!</string>
+     <key>NSExtension</key>
+@@ -1737,11 +1737,11 @@ plist_fragment(
+     <key>CFBundleDevelopmentRegion</key>
+     <string>en</string>
+     <key>CFBundleDisplayName</key>
+-    <string>Swiftgram</string>
++    <string>Swiftgram Neon</string>
+     <key>CFBundleIdentifier</key>
+     <string>{telegram_bundle_id}</string>
+     <key>CFBundleName</key>
+-    <string>Swiftgram</string>
++    <string>Swiftgram Neon</string>
+     <key>CFBundlePackageType</key>
+     <string>APPL</string>
+     <key>CFBundleSignature</key>
+diff --git a/submodules/SettingsUI/Sources/Themes/ThemeColorPresets.swift b/submodules/SettingsUI/Sources/Themes/ThemeColorPresets.swift
+index afd1531610..a2ceeb4576 100644
+--- a/submodules/SettingsUI/Sources/Themes/ThemeColorPresets.swift
++++ b/submodules/SettingsUI/Sources/Themes/ThemeColorPresets.swift
+@@ -38,6 +38,18 @@ var dayColorPresets: [PresentationThemeAccentColor] = [
+ ]
+ 
+ var nightColorPresets: [PresentationThemeAccentColor] = [
++    // Swiftgram Neon: AMOLED Cyan
++    PresentationThemeAccentColor(index: 201, baseColor: .preset, accentColor: 0x00F0FF, bubbleColors: [0x003B46, 0x008A99], wallpaper: .color(0x000000)),
++
++    // Swiftgram Neon: AMOLED Purple
++    PresentationThemeAccentColor(index: 202, baseColor: .preset, accentColor: 0xB026FF, bubbleColors: [0x26003D, 0x67119B], wallpaper: .color(0x000000)),
++
++    // Swiftgram Neon: AMOLED Green
++    PresentationThemeAccentColor(index: 203, baseColor: .preset, accentColor: 0x39FF14, bubbleColors: [0x0A3405, 0x167A08], wallpaper: .color(0x000000)),
++
++    // Swiftgram Neon: AMOLED Magenta
++    PresentationThemeAccentColor(index: 204, baseColor: .preset, accentColor: 0xFF2BD6, bubbleColors: [0x3D082F, 0x941678], wallpaper: .color(0x000000)),
++
+ //    PresentationThemeAccentColor(index: 101, baseColor: .preset, accentColor: 0x0088ff, bubbleColors: [0x0088ff, 0xff53f4], wallpaper: patternWallpaper(data: .variant4, colors: [0xe4b2ea, 0x8376c2, 0xeab9d9, 0xb493e6], intensity: -35, rotation: nil)),
+     PresentationThemeAccentColor(index: 102, baseColor: .preset, accentColor: 0x00b09b, bubbleColors: [0xaee946, 0x00b09b], wallpaper: patternWallpaper(data: .variant9, colors: [0xe4b2ea, 0x8376c2, 0xeab9d9, 0xb493e6], intensity: -35, rotation: nil)),
+     PresentationThemeAccentColor(index: 103, baseColor: .preset, accentColor: 0xd33213, bubbleColors: [0xf9db00, 0xd33213], wallpaper: patternWallpaper(data: .variant2, colors: [0xfec496, 0xdd6cb9, 0x962fbf, 0x4f5bd5], intensity: -40, rotation: nil)),
+diff --git a/submodules/SettingsUI/Sources/Themes/ThemeSettingsController.swift b/submodules/SettingsUI/Sources/Themes/ThemeSettingsController.swift
+index abaa9a7003..2ff4286b84 100644
+--- a/submodules/SettingsUI/Sources/Themes/ThemeSettingsController.swift
++++ b/submodules/SettingsUI/Sources/Themes/ThemeSettingsController.swift
+@@ -634,7 +634,7 @@ public func themeSettingsController(context: AccountContext, focusOnItemTag: The
+                 }
+                 pushControllerImpl?(controller)
+             // MARK: Swiftgram
+-            } else if icon.isSGPro && context.sharedContext.immediateSGStatus.status < 2 {
++            } else if icon.isSGPro && !context.sharedContext.immediateSGStatus.localFeaturesEnabled {
+                 if let payWallController = context.sharedContext.makeSGPayWallController(context: context) {
+                     presentControllerImpl?(payWallController, ViewControllerPresentationArguments(presentationAnimation: .modalSheet))
+                 } else {
+@@ -1123,7 +1123,7 @@ public func themeSettingsController(context: AccountContext, focusOnItemTag: The
+         
+         // MARK: Swiftgram
+         let sgStatus = sharedData.entries[ApplicationSpecificSharedDataKeys.sgStatus]?.get(SGStatus.self) ?? SGStatus.default
+-        let isPremium = sgStatus.status > 1
++        let isPremium = sgStatus.localFeaturesEnabled
+         
+         let themeReference: PresentationThemeReference
+         if presentationData.autoNightModeTriggered {
+diff --git a/submodules/TelegramUI/Components/Chat/ChatTextInputPanelNode/Sources/ChatTextInputPanelNode.swift b/submodules/TelegramUI/Components/Chat/ChatTextInputPanelNode/Sources/ChatTextInputPanelNode.swift
+index b101ec668d..e7128a79a7 100644
+--- a/submodules/TelegramUI/Components/Chat/ChatTextInputPanelNode/Sources/ChatTextInputPanelNode.swift
++++ b/submodules/TelegramUI/Components/Chat/ChatTextInputPanelNode/Sources/ChatTextInputPanelNode.swift
+@@ -5995,7 +5995,7 @@ extension ChatTextInputPanelNode {
+     func initToolbarIfNeeded(context: AccountContext) {
+         guard #available(iOS 13.0, *) else { return }
+         guard SGSimpleSettings.shared.inputToolbar else { return }
+-        guard context.sharedContext.immediateSGStatus.status > 1 else { return }
++        guard context.sharedContext.immediateSGStatus.localFeaturesEnabled else { return }
+         guard self.toolbarNode == nil else { return }
+         let toolbarView = ChatToolbarView(
+             onQuote: { [weak self] in
+diff --git a/submodules/TelegramUI/Components/MessageInputPanelComponent/Sources/MessageInputPanelComponent.swift b/submodules/TelegramUI/Components/MessageInputPanelComponent/Sources/MessageInputPanelComponent.swift
+index 2d985e1f7d..63988a067d 100644
+--- a/submodules/TelegramUI/Components/MessageInputPanelComponent/Sources/MessageInputPanelComponent.swift
++++ b/submodules/TelegramUI/Components/MessageInputPanelComponent/Sources/MessageInputPanelComponent.swift
+@@ -3144,7 +3144,7 @@ extension MessageInputPanelComponent.View {
+     func initToolbarIfNeeded(context: AccountContext) {
+         guard #available(iOS 13.0, *) else { return }
+         guard SGSimpleSettings.shared.inputToolbar else { return }
+-        guard context.sharedContext.immediateSGStatus.status > 1 else { return }
++        guard context.sharedContext.immediateSGStatus.localFeaturesEnabled else { return }
+         guard self.toolbarView == nil else { return }
+         let notificationName = Notification.Name("sgToolbarAction")
+         let toolbar = ChatToolbarView(
+diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenSettingsActions.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenSettingsActions.swift
+index 68c12c91fa..9f07128aa6 100644
+--- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenSettingsActions.swift
++++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenSettingsActions.swift
+@@ -49,7 +49,7 @@ extension PeerInfoScreenNode {
+         case .swiftgram:
+             self.controller?.push(sgSettingsController(context: self.context))
+         case .swiftgramPro:
+-            if self.context.sharedContext.immediateSGStatus.status > 1 {
++            if self.context.sharedContext.immediateSGStatus.localFeaturesEnabled {
+                 self.controller?.push(self.context.sharedContext.makeSGProController(context: self.context))
+             } else {
+                 if let payWallController = self.context.sharedContext.makeSGPayWallController(context: self.context) {
+diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
+index 4dfd688874..9e2e668c99 100644
+--- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
++++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
+@@ -221,8 +221,8 @@ func settingsItems(showProfileId: Bool, data: PeerInfoScreenData?, context: Acco
+     
+     
+     let sgWebSettings = context.currentAppConfiguration.with({ $0 }).sgWebSettings
+-    if sgWebSettings.global.paymentsEnabled || context.sharedContext.immediateSGStatus.status > 1 {
+-        items[.swiftgram]!.append(PeerInfoScreenDisclosureItem(id: 0, label: swiftgramProLabel, text: "Swiftgram Pro", icon: PresentationResourcesSettings.swiftgramPro, action: {
++    if context.sharedContext.immediateSGStatus.localFeaturesEnabled {
++        items[.swiftgram]!.append(PeerInfoScreenDisclosureItem(id: 0, label: swiftgramProLabel, text: "Swiftgram Neon", icon: PresentationResourcesSettings.swiftgramPro, action: {
+             interaction.openSettings(.swiftgramPro)
+         }))
+     }
+diff --git a/submodules/TelegramUI/Sources/AppDelegate.swift b/submodules/TelegramUI/Sources/AppDelegate.swift
+index 31f5fa941b..152437678b 100644
+--- a/submodules/TelegramUI/Sources/AppDelegate.swift
++++ b/submodules/TelegramUI/Sources/AppDelegate.swift
+@@ -659,9 +659,18 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
+             isICloudEnabled: buildConfig.isICloudEnabled
+         )
+         
+-        guard let appGroupUrl = maybeAppGroupUrl else {
+-            self.mainWindow?.presentNative(UIAlertController(title: nil, message: "Error 2", preferredStyle: .alert))
+-            return true
++        // Re-signing services such as Scarlet cannot grant Telegram's original
++        // App Group entitlement. In that case, keep the main application
++        // functional by storing its data inside its own sandbox. Extensions
++        // will not share this fallback container, which is expected for a
++        // sideloaded build without the App Group entitlement.
++        let appGroupUrl: URL
++        if let maybeAppGroupUrl {
++            appGroupUrl = maybeAppGroupUrl
++        } else {
++            let applicationSupportUrl = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
++            appGroupUrl = applicationSupportUrl.appendingPathComponent("SwiftgramSideload", isDirectory: true)
++            try? FileManager.default.createDirectory(at: appGroupUrl, withIntermediateDirectories: true)
+         }
+         
+         var isDebugConfiguration = false
+diff --git a/submodules/TelegramUI/Sources/OpenUrl.swift b/submodules/TelegramUI/Sources/OpenUrl.swift
+index 71870d7b89..0028603d89 100644
+--- a/submodules/TelegramUI/Sources/OpenUrl.swift
++++ b/submodules/TelegramUI/Sources/OpenUrl.swift
+@@ -893,7 +893,7 @@ func openExternalUrlImpl(context: AccountContext, urlContext: OpenURLContext, ur
+                                 }
+                                 return
+                             case "pro", "premium", "buy":
+-                                if context.sharedContext.immediateSGStatus.status > 1 {
++                                if context.sharedContext.immediateSGStatus.localFeaturesEnabled {
+                                     navigationController?.pushViewController(context.sharedContext.makeSGProController(context: context))
+                                 } else {
+                                     if let lastViewController = navigationController?.viewControllers.last as? ViewController {
