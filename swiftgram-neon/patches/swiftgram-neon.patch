@@ -40,10 +40,75 @@ index dd98590585..4d0eee3e0f 100644
                  SGSimpleSettings.shared.customAppBadge = selectedBadge.assetName
                  self.context.sharedContext.mainWindow?.badgeView.image = image
 diff --git a/Swiftgram/SGProUI/Sources/SGProUI.swift b/Swiftgram/SGProUI/Sources/SGProUI.swift
-index a8001251a2..10180991de 100644
+index a8001251a2..afcc8b49a7 100644
 --- a/Swiftgram/SGProUI/Sources/SGProUI.swift
 +++ b/Swiftgram/SGProUI/Sources/SGProUI.swift
-@@ -171,7 +171,7 @@ public func sgProController(context: AccountContext) -> ViewController {
+@@ -20,6 +20,7 @@ import SGLogging
+ 
+ private enum SGProControllerSection: Int32, SGItemListSection {
+     case base
++    case screenEffect
+     case appearance
+     case notifications
+     case footer
+@@ -34,6 +35,11 @@ private enum SGProDisclosureLink: String {
+ 
+ private enum SGProToggles: String {
+     case inputToolbar
++    case curvedScreenEnabled
++}
++
++private enum SGProSliders: String {
++    case curvedScreenIntensity
+ }
+ 
+ private enum SGProOneFromManySetting: String {
+@@ -45,7 +51,7 @@ private enum SGProAction {
+     case resetIAP
+ }
+ 
+-private typealias SGProControllerEntry = SGItemListUIEntry<SGProControllerSection, SGProToggles, AnyHashable, SGProOneFromManySetting, SGProDisclosureLink, SGProAction>
++private typealias SGProControllerEntry = SGItemListUIEntry<SGProControllerSection, SGProToggles, SGProSliders, SGProOneFromManySetting, SGProDisclosureLink, SGProAction>
+ 
+ private func SGProControllerEntries(presentationData: PresentationData) -> [SGProControllerEntry] {
+     var entries: [SGProControllerEntry] = []
+@@ -56,6 +62,12 @@ private func SGProControllerEntries(presentationData: PresentationData) -> [SGPr
+     entries.append(.disclosure(id: id.count, section: .base, link: .sessionBackupManager, text: "SessionBackup.Title".i18n(lang)))
+     entries.append(.disclosure(id: id.count, section: .base, link: .messageFilter, text: "MessageFilter.Title".i18n(lang)))
+     entries.append(.toggle(id: id.count, section: .base, settingName: .inputToolbar, value: SGSimpleSettings.shared.inputToolbar, text: "InputToolbar.Title".i18n(lang), enabled: true))
++
++    entries.append(.header(id: id.count, section: .screenEffect, text: "ИЗОГНУТЫЙ ЭКРАН", badge: "НОВОЕ"))
++    entries.append(.toggle(id: id.count, section: .screenEffect, settingName: .curvedScreenEnabled, value: SGSimpleSettings.shared.curvedScreenEnabled, text: "Включить эффект", enabled: true))
++    entries.append(.header(id: id.count, section: .screenEffect, text: "СИЛА ЭФФЕКТА", badge: nil))
++    entries.append(.percentageSlider(id: id.count, section: .screenEffect, settingName: .curvedScreenIntensity, value: SGSimpleSettings.shared.curvedScreenIntensity))
++    entries.append(.notice(id: id.count, section: .screenEffect, text: "Округляет края, затемняет боковые грани и добавляет неоновое свечение. Эффект не мешает нажимать кнопки и использовать жесты."))
+     
+     entries.append(.header(id: id.count, section: .notifications, text: presentationData.strings.Notifications_Title.uppercased(), badge: nil))
+     entries.append(.oneFromManySelector(id: id.count, section: .notifications, settingName: .pinnedMessageNotifications, text: "Notifications.PinnedMessages.Title".i18n(lang), value: "Notifications.PinnedMessages.value.\(SGSimpleSettings.shared.pinnedMessageNotifications)".i18n(lang), enabled: true))
+@@ -82,10 +94,21 @@ public func sgProController(context: AccountContext) -> ViewController {
+ 
+     let simplePromise = ValuePromise(true, ignoreRepeated: false)
+     
+-    let arguments = SGItemListArguments<SGProToggles, AnyHashable, SGProOneFromManySetting, SGProDisclosureLink, SGProAction>(context: context, setBoolValue: { toggleName, value in
++    let arguments = SGItemListArguments<SGProToggles, SGProSliders, SGProOneFromManySetting, SGProDisclosureLink, SGProAction>(context: context, setBoolValue: { toggleName, value in
+         switch toggleName {
+             case .inputToolbar:
+                 SGSimpleSettings.shared.inputToolbar = value
++            case .curvedScreenEnabled:
++                SGSimpleSettings.shared.curvedScreenEnabled = value
++                NotificationCenter.default.post(name: .sgCurvedScreenSettingsChanged, object: nil)
++                simplePromise.set(true)
++        }
++    }, updateSliderValue: { slider, value in
++        switch slider {
++            case .curvedScreenIntensity:
++                SGSimpleSettings.shared.curvedScreenIntensity = max(0, min(100, value))
++                NotificationCenter.default.post(name: .sgCurvedScreenSettingsChanged, object: nil)
++                simplePromise.set(true)
+         }
+     }, setOneFromManyValue: { setting in
+         let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+@@ -171,7 +194,7 @@ public func sgProController(context: AccountContext) -> ViewController {
          
          let entries = SGProControllerEntries(presentationData: presentationData)
          
@@ -52,11 +117,67 @@ index a8001251a2..10180991de 100644
          
          let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks, ensureVisibleItemTag: /*focusOnItemTag*/ nil, initialScrollToItem: nil /* scrollToItem*/ )
          
-@@ -191,4 +191,3 @@ public func sgProController(context: AccountContext) -> ViewController {
+@@ -190,5 +213,3 @@ public func sgProController(context: AccountContext) -> ViewController {
+     
      return controller
  }
- 
 -
+-
+diff --git a/Swiftgram/SGSimpleSettings/Sources/SimpleSettings.swift b/Swiftgram/SGSimpleSettings/Sources/SimpleSettings.swift
+index 2db47deb51..4d8075152b 100644
+--- a/Swiftgram/SGSimpleSettings/Sources/SimpleSettings.swift
++++ b/Swiftgram/SGSimpleSettings/Sources/SimpleSettings.swift
+@@ -73,6 +73,8 @@ public class SGSimpleSettings {
+             { let _ = self.startTelescopeWithRearCam },
+             { let _ = self.hideRecordingButton },
+             { let _ = self.inputToolbar },
++            { let _ = self.curvedScreenEnabled },
++            { let _ = self.curvedScreenIntensity },
+             { let _ = self.dismissedSGSuggestions },
+             { let _ = self.customAppBadge }
+         ]
+@@ -159,6 +161,8 @@ public class SGSimpleSettings {
+         case legacyNotificationsFix
+         case messageFilterKeywords
+         case inputToolbar
++        case curvedScreenEnabled
++        case curvedScreenIntensity
+         case pinnedMessageNotifications
+         case mentionsAndRepliesNotifications
+         case primaryUserId
+@@ -315,6 +319,8 @@ public class SGSimpleSettings {
+         Keys.videoPIPSwipeDirection.rawValue: VideoPIPSwipeDirection.up.rawValue,
+         Keys.messageFilterKeywords.rawValue: [],
+         Keys.inputToolbar.rawValue: false,
++        Keys.curvedScreenEnabled.rawValue: true,
++        Keys.curvedScreenIntensity.rawValue: 45,
+         Keys.primaryUserId.rawValue: "",
+         Keys.dismissedSGSuggestions.rawValue: [],
+         Keys.duckyAppIconAvailable.rawValue: true,
+@@ -554,6 +560,12 @@ public class SGSimpleSettings {
+     @UserDefault(key: Keys.inputToolbar.rawValue)
+     public var inputToolbar: Bool
+ 
++    @UserDefault(key: Keys.curvedScreenEnabled.rawValue)
++    public var curvedScreenEnabled: Bool
++
++    @UserDefault(key: Keys.curvedScreenIntensity.rawValue)
++    public var curvedScreenIntensity: Int32
++
+     @UserDefault(key: Keys.sendWithReturnKey.rawValue)
+     public var sendWithReturnKey: Bool
+     
+@@ -594,6 +606,10 @@ public class SGSimpleSettings {
+     public var tabBarSearchEnabled: Bool
+ }
+ 
++public extension Notification.Name {
++    static let sgCurvedScreenSettingsChanged = Notification.Name("SwiftgramCurvedScreenSettingsChanged")
++}
++
+ extension SGSimpleSettings {
+     public var isStealthModeEnabled: Bool {
+         return storyStealthMode && canUseStealthMode
 diff --git a/Swiftgram/SGStatus/Sources/SGStatus.swift b/Swiftgram/SGStatus/Sources/SGStatus.swift
 index 6bedd862a5..a72b102d92 100644
 --- a/Swiftgram/SGStatus/Sources/SGStatus.swift
@@ -486,10 +607,205 @@ index 4dfd688874..9e2e668c99 100644
          }))
      }
 diff --git a/submodules/TelegramUI/Sources/AppDelegate.swift b/submodules/TelegramUI/Sources/AppDelegate.swift
-index 31f5fa941b..152437678b 100644
+index 31f5fa941b..d0519cab8a 100644
 --- a/submodules/TelegramUI/Sources/AppDelegate.swift
 +++ b/submodules/TelegramUI/Sources/AppDelegate.swift
-@@ -659,9 +659,18 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
+@@ -227,10 +227,159 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
+     )
+ }
+ 
++private final class SwiftgramCurvedScreenOverlayView: UIView {
++    private let leftEdgeLayer = CAGradientLayer()
++    private let rightEdgeLayer = CAGradientLayer()
++    private let topEdgeLayer = CAGradientLayer()
++    private let bottomEdgeLayer = CAGradientLayer()
++    private let borderGradientLayer = CAGradientLayer()
++    private let borderMaskLayer = CAShapeLayer()
++    private let glowLayer = CAShapeLayer()
++    private let cornerMaskLayer = CAShapeLayer()
++    private var strength: CGFloat = 0.45
++
++    override init(frame: CGRect) {
++        super.init(frame: frame)
++        self.isUserInteractionEnabled = false
++        self.isAccessibilityElement = false
++        self.accessibilityElementsHidden = true
++        self.backgroundColor = .clear
++        self.layer.zPosition = 10_000.0
++
++        self.leftEdgeLayer.startPoint = CGPoint(x: 0.0, y: 0.5)
++        self.leftEdgeLayer.endPoint = CGPoint(x: 1.0, y: 0.5)
++        self.rightEdgeLayer.startPoint = CGPoint(x: 1.0, y: 0.5)
++        self.rightEdgeLayer.endPoint = CGPoint(x: 0.0, y: 0.5)
++        self.topEdgeLayer.startPoint = CGPoint(x: 0.5, y: 0.0)
++        self.topEdgeLayer.endPoint = CGPoint(x: 0.5, y: 1.0)
++        self.bottomEdgeLayer.startPoint = CGPoint(x: 0.5, y: 1.0)
++        self.bottomEdgeLayer.endPoint = CGPoint(x: 0.5, y: 0.0)
++
++        self.borderGradientLayer.startPoint = CGPoint(x: 0.0, y: 0.0)
++        self.borderGradientLayer.endPoint = CGPoint(x: 1.0, y: 1.0)
++        self.borderGradientLayer.mask = self.borderMaskLayer
++
++        self.glowLayer.fillColor = UIColor.clear.cgColor
++        self.glowLayer.lineCap = .round
++        self.glowLayer.shadowOffset = .zero
++
++        self.cornerMaskLayer.fillRule = .evenOdd
++        self.cornerMaskLayer.fillColor = UIColor.black.cgColor
++
++        self.layer.addSublayer(self.leftEdgeLayer)
++        self.layer.addSublayer(self.rightEdgeLayer)
++        self.layer.addSublayer(self.topEdgeLayer)
++        self.layer.addSublayer(self.bottomEdgeLayer)
++        self.layer.addSublayer(self.cornerMaskLayer)
++        self.layer.addSublayer(self.glowLayer)
++        self.layer.addSublayer(self.borderGradientLayer)
++        self.updateAppearance()
++    }
++
++    required init?(coder: NSCoder) {
++        fatalError("init(coder:) has not been implemented")
++    }
++
++    func update(enabled: Bool, intensity: Int32, animated: Bool) {
++        self.strength = CGFloat(max(0, min(100, intensity))) / 100.0
++        self.updateAppearance()
++        self.setNeedsLayout()
++
++        let targetAlpha: CGFloat = enabled ? 1.0 : 0.0
++        if animated {
++            UIView.animate(withDuration: 0.2) {
++                self.alpha = targetAlpha
++            }
++        } else {
++            self.alpha = targetAlpha
++        }
++    }
++
++    private func updateAppearance() {
++        let strength = self.strength
++        CATransaction.begin()
++        CATransaction.setDisableActions(true)
++
++        self.leftEdgeLayer.colors = [
++            UIColor.black.withAlphaComponent(0.38 + 0.32 * strength).cgColor,
++            UIColor(red: 0.48, green: 0.16, blue: 1.0, alpha: 0.16 + 0.28 * strength).cgColor,
++            UIColor.clear.cgColor
++        ]
++        self.leftEdgeLayer.locations = [0.0, 0.28, 1.0]
++        self.rightEdgeLayer.colors = [
++            UIColor.black.withAlphaComponent(0.38 + 0.32 * strength).cgColor,
++            UIColor(red: 1.0, green: 0.28, blue: 0.08, alpha: 0.14 + 0.25 * strength).cgColor,
++            UIColor.clear.cgColor
++        ]
++        self.rightEdgeLayer.locations = [0.0, 0.28, 1.0]
++        self.topEdgeLayer.colors = [UIColor.black.withAlphaComponent(0.18 + 0.2 * strength).cgColor, UIColor.clear.cgColor]
++        self.bottomEdgeLayer.colors = [UIColor.black.withAlphaComponent(0.24 + 0.24 * strength).cgColor, UIColor.clear.cgColor]
++
++        self.borderGradientLayer.colors = [
++            UIColor(red: 0.55, green: 0.19, blue: 1.0, alpha: 1.0).cgColor,
++            UIColor(red: 0.85, green: 0.18, blue: 0.95, alpha: 1.0).cgColor,
++            UIColor(red: 1.0, green: 0.33, blue: 0.12, alpha: 1.0).cgColor,
++            UIColor(red: 0.42, green: 0.16, blue: 1.0, alpha: 1.0).cgColor
++        ]
++        self.borderGradientLayer.opacity = Float(0.28 + 0.62 * strength)
++
++        self.glowLayer.strokeColor = UIColor(red: 0.55, green: 0.18, blue: 1.0, alpha: 0.26 + 0.34 * strength).cgColor
++        self.glowLayer.lineWidth = 1.0 + 1.5 * strength
++        self.glowLayer.shadowColor = UIColor(red: 0.55, green: 0.18, blue: 1.0, alpha: 1.0).cgColor
++        self.glowLayer.shadowOpacity = Float(0.2 + 0.5 * strength)
++        self.glowLayer.shadowRadius = 5.0 + 9.0 * strength
++
++        CATransaction.commit()
++    }
++
++    override func layoutSubviews() {
++        super.layoutSubviews()
++        let bounds = self.bounds
++        guard !bounds.isEmpty else {
++            return
++        }
++
++        CATransaction.begin()
++        CATransaction.setDisableActions(true)
++
++        let sideWidth = 24.0 + 28.0 * self.strength
++        let verticalDepth = 18.0 + 18.0 * self.strength
++        self.leftEdgeLayer.frame = CGRect(x: 0.0, y: 0.0, width: sideWidth, height: bounds.height)
++        self.rightEdgeLayer.frame = CGRect(x: bounds.width - sideWidth, y: 0.0, width: sideWidth, height: bounds.height)
++        self.topEdgeLayer.frame = CGRect(x: 0.0, y: 0.0, width: bounds.width, height: verticalDepth)
++        self.bottomEdgeLayer.frame = CGRect(x: 0.0, y: bounds.height - verticalDepth, width: bounds.width, height: verticalDepth)
++
++        let inset = 1.5 + 1.5 * self.strength
++        let cornerRadius = min(48.0, 34.0 + 12.0 * self.strength)
++        let roundedRect = bounds.insetBy(dx: inset, dy: inset)
++        let roundedPath = UIBezierPath(roundedRect: roundedRect, cornerRadius: cornerRadius)
++
++        self.borderGradientLayer.frame = bounds
++        self.borderMaskLayer.frame = bounds
++        self.borderMaskLayer.path = roundedPath.cgPath
++        self.borderMaskLayer.fillColor = UIColor.clear.cgColor
++        self.borderMaskLayer.strokeColor = UIColor.black.cgColor
++        self.borderMaskLayer.lineWidth = 1.5 + 3.0 * self.strength
++
++        self.glowLayer.frame = bounds
++        self.glowLayer.path = roundedPath.cgPath
++
++        let cornerPath = UIBezierPath(rect: bounds)
++        cornerPath.append(roundedPath)
++        self.cornerMaskLayer.frame = bounds
++        self.cornerMaskLayer.path = cornerPath.cgPath
++        self.cornerMaskLayer.opacity = Float(0.82 + 0.18 * self.strength)
++
++        CATransaction.commit()
++    }
++}
++
+ @objc(AppDelegate) class AppDelegate: UIResponder, UIApplicationDelegate, PKPushRegistryDelegate, UNUserNotificationCenterDelegate, URLSessionDelegate, URLSessionTaskDelegate {
+     @objc var window: UIWindow?
+     var nativeWindow: (UIWindow & WindowHost)?
+     var mainWindow: Window1!
++    private var curvedScreenOverlayView: SwiftgramCurvedScreenOverlayView?
++    private var curvedScreenSettingsObserver: NSObjectProtocol?
+     private var dataImportSplash: LegacyDataImportSplash?
+     private var memoryUsageOverlayView: UILabel?
+     
+@@ -333,6 +482,26 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
+     private let regularDeviceToken = Promise<Data?>(nil)
+     
+     private var recaptchaClientsBySiteKey: [String: Promise<RecaptchaClient>] = [:]
++
++    private func installCurvedScreenOverlay(in window: UIWindow) {
++        let overlayView = SwiftgramCurvedScreenOverlayView(frame: window.bounds)
++        overlayView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
++        window.addSubview(overlayView)
++        self.curvedScreenOverlayView = overlayView
++
++        self.curvedScreenSettingsObserver = NotificationCenter.default.addObserver(forName: .sgCurvedScreenSettingsChanged, object: nil, queue: .main) { [weak self] _ in
++            self?.refreshCurvedScreenOverlay(animated: true)
++        }
++        self.refreshCurvedScreenOverlay(animated: false)
++    }
++
++    private func refreshCurvedScreenOverlay(animated: Bool) {
++        guard let overlayView = self.curvedScreenOverlayView else {
++            return
++        }
++        overlayView.update(enabled: SGSimpleSettings.shared.curvedScreenEnabled, intensity: SGSimpleSettings.shared.curvedScreenIntensity, animated: animated)
++        overlayView.superview?.bringSubviewToFront(overlayView)
++    }
+         
+     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+         precondition(!testIsLaunched)
+@@ -426,6 +595,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
+         }
+         self.window = window
+         self.nativeWindow = window
++        self.installCurvedScreenOverlay(in: window)
+         // MARK: Swiftgram
+         if sgHardReset(present: self.mainWindow?.presentNative, beforePresent: { self.window?.makeKeyAndVisible() }) {
+             return true
+@@ -659,9 +829,18 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
              isICloudEnabled: buildConfig.isICloudEnabled
          )
          
@@ -511,6 +827,14 @@ index 31f5fa941b..152437678b 100644
          }
          
          var isDebugConfiguration = false
+@@ -2082,6 +2261,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
+         self.isInForegroundPromise.set(true)
+         self.isActiveValue = true
+         self.isActivePromise.set(true)
++        self.refreshCurvedScreenOverlay(animated: false)
+ 
+         self.resetBadge()
+         
 diff --git a/submodules/TelegramUI/Sources/OpenUrl.swift b/submodules/TelegramUI/Sources/OpenUrl.swift
 index 71870d7b89..0028603d89 100644
 --- a/submodules/TelegramUI/Sources/OpenUrl.swift
