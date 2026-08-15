@@ -776,7 +776,7 @@ index 9145478f6b..62d6df25c1 100644
 +        AudioUnitSetParameter(dynamicsAudioUnit, kDynamicsProcessorParam_ExpansionRatio, kAudioUnitScope_Global, 0, 1.0, 0)
 +        AudioUnitSetParameter(dynamicsAudioUnit, kDynamicsProcessorParam_AttackTime, kAudioUnitScope_Global, 0, 0.002, 0)
 +        AudioUnitSetParameter(dynamicsAudioUnit, kDynamicsProcessorParam_ReleaseTime, kAudioUnitScope_Global, 0, 0.12, 0)
-+        AudioUnitSetParameter(dynamicsAudioUnit, kDynamicsProcessorParam_MasterGain, kAudioUnitScope_Global, 0, loudness * 4.0, 0)
++        AudioUnitSetParameter(dynamicsAudioUnit, kDynamicsProcessorParam_OverallGain, kAudioUnitScope_Global, 0, loudness * 4.0, 0)
 +    }
      
      fileprivate func setRate(_ rate: Double) {
