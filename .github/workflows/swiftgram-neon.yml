@@ -28,6 +28,63 @@ jobs:
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
+      - name: Generate one-time credentials key
+        run: |
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out "$RUNNER_TEMP/swiftgram-credentials-private.pem" 2>/dev/null
+          openssl pkey -in "$RUNNER_TEMP/swiftgram-credentials-private.pem" -pubout -out "$RUNNER_TEMP/swiftgram-credentials-public.pem"
+
+      - name: Upload one-time public key
+        uses: actions/upload-artifact@v4
+        with:
+          name: Swiftgram-Neon-Credentials-Key-${{ github.run_id }}
+          path: ${{ runner.temp }}/swiftgram-credentials-public.pem
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Receive encrypted Telegram credentials
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ENCRYPTED_REPO_PATH="swiftgram-neon/runtime/$GITHUB_RUN_ID.enc"
+          API_URL="https://api.github.com/repos/$GITHUB_REPOSITORY/contents/$ENCRYPTED_REPO_PATH?ref=main"
+          RESPONSE_FILE="$RUNNER_TEMP/swiftgram-credentials-response.json"
+          CIPHERTEXT_B64_FILE="$RUNNER_TEMP/swiftgram-credentials-ciphertext.txt"
+          CIPHERTEXT_FILE="$RUNNER_TEMP/swiftgram-credentials-ciphertext.bin"
+          DECRYPTED_FILE="$RUNNER_TEMP/telegram-credentials.json"
+
+          found=0
+          for attempt in $(seq 1 80)
+          do
+            http_status=$(curl -sS -o "$RESPONSE_FILE" -w "%{http_code}" -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "$API_URL")
+            if [ "$http_status" = "200" ]
+            then
+              jq -r '.content' "$RESPONSE_FILE" | tr -d '\n' | openssl base64 -d -A > "$CIPHERTEXT_B64_FILE"
+              tr -d '\n' < "$CIPHERTEXT_B64_FILE" | openssl base64 -d -A > "$CIPHERTEXT_FILE"
+              found=1
+              break
+            fi
+            sleep 15
+          done
+
+          test "$found" = "1"
+          test -s "$CIPHERTEXT_FILE"
+
+          openssl pkeyutl -decrypt \
+            -inkey "$RUNNER_TEMP/swiftgram-credentials-private.pem" \
+            -in "$CIPHERTEXT_FILE" \
+            -out "$DECRYPTED_FILE" \
+            -pkeyopt rsa_padding_mode:oaep \
+            -pkeyopt rsa_oaep_md:sha256
+
+          TELEGRAM_API_ID=$(jq -r '.api_id' "$DECRYPTED_FILE")
+          TELEGRAM_API_HASH=$(jq -r '.api_hash' "$DECRYPTED_FILE")
+          echo "::add-mask::$TELEGRAM_API_ID"
+          echo "::add-mask::$TELEGRAM_API_HASH"
+          [[ "$TELEGRAM_API_ID" =~ ^[0-9]+$ ]]
+          [[ "$TELEGRAM_API_HASH" =~ ^[0-9a-fA-F]{32}$ ]]
+
+          rm -f "$RUNNER_TEMP/swiftgram-credentials-private.pem" "$RESPONSE_FILE" "$CIPHERTEXT_B64_FILE" "$CIPHERTEXT_FILE"
+
       - name: Clone pinned Swiftgram source
         run: |
           git clone --filter=blob:none https://github.com/Swiftgram/Telegram-iOS.git swiftgram-source
@@ -42,12 +99,10 @@ jobs:
           git apply "$GITHUB_WORKSPACE/swiftgram-neon/patches/swiftgram-neon.patch"
 
       - name: Create private Telegram configuration
-        env:
-          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
-          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
         run: |
-          test -n "$TELEGRAM_API_ID"
-          test -n "$TELEGRAM_API_HASH"
+          CREDENTIALS_FILE="$RUNNER_TEMP/telegram-credentials.json"
+          TELEGRAM_API_ID=$(jq -r '.api_id' "$CREDENTIALS_FILE")
+          TELEGRAM_API_HASH=$(jq -r '.api_hash' "$CREDENTIALS_FILE")
           cd swiftgram-source
           jq -n \
             --arg api_id "$TELEGRAM_API_ID" \
@@ -68,6 +123,7 @@ jobs:
               sg_config: ""
             }' > build-system/neon_private_configuration.json
           chmod 600 build-system/neon_private_configuration.json
+          rm -f "$CREDENTIALS_FILE"
 
       - name: Move source to canonical path
         run: |
