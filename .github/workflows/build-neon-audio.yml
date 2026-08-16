@@ -18,15 +18,15 @@ jobs:
           xcrun --sdk iphoneos clang \
             -target arm64-apple-ios15.0 \
             -isysroot "$SDK" \
-            -fobjc-arc -fblocks \
-            -dynamiclib NeonModesOverlay.m \
-            -o NeonModesOverlay.dylib \
-            -Wl,-install_name,@rpath/NeonModesOverlay.dylib \
-            -framework Foundation -framework UIKit -framework AVFAudio -framework QuartzCore -framework CoreGraphics -lobjc
-          file NeonModesOverlay.dylib
-          xcrun vtool -show-build NeonModesOverlay.dylib || true
+            -fblocks -fno-stack-protector -fobjc-runtime=ios-15.0 \
+            -dynamiclib NeonAudioModsVisible.m \
+            -o NeonAudioModsVisible.dylib \
+            -Wl,-install_name,@rpath/NeonAudioModsVisible.dylib \
+            -framework Foundation -framework UIKit -framework AVFAudio -lobjc
+          file NeonAudioModsVisible.dylib
+          xcrun vtool -show-build NeonAudioModsVisible.dylib || true
       - uses: actions/upload-artifact@v4
         with:
-          name: NeonModesOverlay-dylib
-          path: NeonModesOverlay.dylib
+          name: NeonAudioModsVisible-dylib
+          path: NeonAudioModsVisible.dylib
           if-no-files-found: error
