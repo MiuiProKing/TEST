@@ -19,7 +19,7 @@ jobs:
             -target arm64-apple-ios15.0 \
             -isysroot "$SDK" \
             -fblocks -fno-stack-protector -fobjc-runtime=ios-15.0 \
-            -dynamiclib PresetSheetFix.m \
+            -dynamiclib NeonPresetFixV2.m \
             -o NeonAudioMods.dylib \
             -Wl,-install_name,@rpath/NeonAudioMods.dylib \
             -framework Foundation -framework UIKit -lobjc
