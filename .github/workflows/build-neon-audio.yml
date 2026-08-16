@@ -22,7 +22,7 @@ jobs:
             -dynamiclib NeonModesOverlay.m \
             -o NeonModesOverlay.dylib \
             -Wl,-install_name,@rpath/NeonModesOverlay.dylib \
-            -framework Foundation -framework UIKit -framework AVFAudio -framework QuartzCore -lobjc
+            -framework Foundation -framework UIKit -framework AVFAudio -framework QuartzCore -framework CoreGraphics -lobjc
           file NeonModesOverlay.dylib
           xcrun vtool -show-build NeonModesOverlay.dylib || true
       - uses: actions/upload-artifact@v4
