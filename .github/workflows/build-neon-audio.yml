@@ -19,10 +19,10 @@ jobs:
             -target arm64-apple-ios15.0 \
             -isysroot "$SDK" \
             -fblocks -fno-stack-protector -fobjc-runtime=ios-15.0 \
-            -dynamiclib NeonAudioMods.m \
+            -dynamiclib PresetSheetFix.m \
             -o NeonAudioMods.dylib \
             -Wl,-install_name,@rpath/NeonAudioMods.dylib \
-            -framework Foundation -framework UIKit -framework AVFAudio -lobjc
+            -framework Foundation -framework UIKit -lobjc
           file NeonAudioMods.dylib
           xcrun vtool -show-build NeonAudioMods.dylib || true
       - uses: actions/upload-artifact@v4
@@ -30,4 +30,3 @@ jobs:
           name: NeonAudioMods-dylib
           path: NeonAudioMods.dylib
           if-no-files-found: error
-# trigger build
