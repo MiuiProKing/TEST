@@ -1,0 +1,32 @@
+name: Build Neon Audio Mod
+
+on:
+  push:
+    branches:
+      - build-neon-audio-modpack-20260816
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build iOS arm64 dylib
+        run: |
+          set -euxo pipefail
+          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          xcrun --sdk iphoneos clang \
+            -target arm64-apple-ios15.0 \
+            -isysroot "$SDK" \
+            -fblocks -fno-stack-protector -fobjc-runtime=ios-15.0 \
+            -dynamiclib NeonAudioMods.m \
+            -o NeonAudioMods.dylib \
+            -Wl,-install_name,@rpath/NeonAudioMods.dylib \
+            -framework Foundation -framework UIKit -framework AVFAudio -lobjc
+          file NeonAudioMods.dylib
+          xcrun vtool -show-build NeonAudioMods.dylib || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NeonAudioMods-dylib
+          path: NeonAudioMods.dylib
+          if-no-files-found: error
