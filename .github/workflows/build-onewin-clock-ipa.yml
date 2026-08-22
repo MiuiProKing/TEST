@@ -8,6 +8,12 @@ on:
     paths:
       - 'onewin-clock-ios/**'
       - '.github/workflows/build-onewin-clock-ipa.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'onewin-clock-ios/**'
+      - '.github/workflows/build-onewin-clock-ipa.yml'
 
 permissions:
   contents: read
