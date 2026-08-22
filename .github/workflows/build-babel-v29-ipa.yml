@@ -24,7 +24,7 @@ jobs:
       - name: Restore iOS project
         run: |
           set -euo pipefail
-          base64 --decode babel-v29/BabelV29App_Source.zip.b64 > BabelV29App_Source.zip
+          base64 -D -i babel-v29/BabelV29App_Source.zip.b64 -o BabelV29App_Source.zip
           unzip -q BabelV29App_Source.zip
           test -f BabelV29App/OneWinClock.xcodeproj/project.pbxproj
 
