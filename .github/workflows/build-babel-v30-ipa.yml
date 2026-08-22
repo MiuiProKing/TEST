@@ -24,6 +24,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Restore iOS source
+        run: |
+          set -euo pipefail
+          base64 -D -i babel-v30/BabelV30App_Source.zip.b64 -o "$RUNNER_TEMP/BabelV30App_Source.zip"
+          unzip -q "$RUNNER_TEMP/BabelV30App_Source.zip" -d babel-v30
+          test -f babel-v30/BabelV30App/OneWinClock.xcodeproj/project.pbxproj
+
       - name: Generate private bridge credentials
         run: |
           set -euo pipefail
