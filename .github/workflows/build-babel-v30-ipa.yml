@@ -1,0 +1,92 @@
+name: Build BABEL V30 unsigned IPA
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'babel-v30/**'
+      - '.github/workflows/build-babel-v30-ipa.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'babel-v30/**'
+      - '.github/workflows/build-babel-v30-ipa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate private bridge credentials
+        run: |
+          set -euo pipefail
+          export CMD_TOPIC="babelv30-cmd-$(openssl rand -hex 24)"
+          export EVT_TOPIC="babelv30-evt-$(openssl rand -hex 24)"
+          export APP_SECRET="$(openssl rand -hex 32)"
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, os, re
+          swift = Path('babel-v30/BabelV30App/OneWinClock/ViewController.swift')
+          text = swift.read_text(encoding='utf-8')
+          text, n1 = re.subn(r'static let commandTopic = "[^"]*"', 'static let commandTopic = "' + os.environ['CMD_TOPIC'] + '"', text, count=1)
+          text, n2 = re.subn(r'static let eventTopic = "[^"]*"', 'static let eventTopic = "' + os.environ['EVT_TOPIC'] + '"', text, count=1)
+          text, n3 = re.subn(r'static let secret = "[^"]*"', 'static let secret = "' + os.environ['APP_SECRET'] + '"', text, count=1)
+          if (n1, n2, n3) != (1, 1, 1):
+              raise SystemExit('bridge credential placeholders not found exactly once')
+          swift.write_text(text, encoding='utf-8')
+          Path('bridge-config-v30.json').write_text(json.dumps({
+              'command_topic': os.environ['CMD_TOPIC'],
+              'event_topic': os.environ['EVT_TOPIC'],
+              'secret': os.environ['APP_SECRET'],
+          }, ensure_ascii=False), encoding='utf-8')
+          PY
+
+      - name: Xcode info
+        run: |
+          xcodebuild -version
+          xcodebuild -project babel-v30/BabelV30App/OneWinClock.xcodeproj -list
+
+      - name: Build unsigned iPhone app
+        run: |
+          set -euo pipefail
+          BUILD_DIR="$RUNNER_TEMP/BabelV30Build"
+          xcodebuild \
+            -project babel-v30/BabelV30App/OneWinClock.xcodeproj \
+            -scheme OneWinClock \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath "$BUILD_DIR" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+          APP_PATH="$BUILD_DIR/Build/Products/Release-iphoneos/OneWinClock.app"
+          test -d "$APP_PATH"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$APP_PATH/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Info.plist"
+
+          rm -rf "$RUNNER_TEMP/Payload"
+          mkdir -p "$RUNNER_TEMP/Payload"
+          cp -R "$APP_PATH" "$RUNNER_TEMP/Payload/"
+          cd "$RUNNER_TEMP"
+          /usr/bin/zip -qry "$GITHUB_WORKSPACE/BABEL-V30-APP-unsigned.ipa" Payload
+          test -s "$GITHUB_WORKSPACE/BABEL-V30-APP-unsigned.ipa"
+          ls -lh "$GITHUB_WORKSPACE/BABEL-V30-APP-unsigned.ipa"
+
+      - name: Upload secure package
+        uses: actions/upload-artifact@v4
+        with:
+          name: BABEL-V30-APP-secure-package
+          path: |
+            BABEL-V30-APP-unsigned.ipa
+            bridge-config-v30.json
+          if-no-files-found: error
+          retention-days: 30
