@@ -20,11 +20,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Restore sanitized iOS project
+      - name: Restore known-good iOS source
         run: |
           set -euo pipefail
-          base64 -D -i babel-v29/BabelV29App_Source.zip.b64 -o BabelV29App_Source.zip
+          git show b0d5cd901cb476ec58380d453dd2af7e28254718:babel-v29/BabelV29App_Source.zip.b64 > "$RUNNER_TEMP/BabelV29App_Source.zip.b64"
+          base64 -D -i "$RUNNER_TEMP/BabelV29App_Source.zip.b64" -o BabelV29App_Source.zip
           unzip -q BabelV29App_Source.zip
           test -f BabelV29App/OneWinClock.xcodeproj/project.pbxproj
 
@@ -36,18 +39,14 @@ jobs:
           export APP_SECRET="$(openssl rand -hex 32)"
           python3 - <<'PY'
           from pathlib import Path
-          import json, os
+          import json, os, re
           swift = Path('BabelV29App/OneWinClock/ViewController.swift')
           text = swift.read_text(encoding='utf-8')
-          replacements = {
-              '__BABEL_CMD_TOPIC__': os.environ['CMD_TOPIC'],
-              '__BABEL_EVT_TOPIC__': os.environ['EVT_TOPIC'],
-              '__BABEL_APP_SECRET__': os.environ['APP_SECRET'],
-          }
-          for old, new in replacements.items():
-              if old not in text:
-                  raise SystemExit(f'missing placeholder: {old}')
-              text = text.replace(old, new)
+          text, n1 = re.subn(r'static let commandTopic = "[^"]*"', 'static let commandTopic = "' + os.environ['CMD_TOPIC'] + '"', text, count=1)
+          text, n2 = re.subn(r'static let eventTopic = "[^"]*"', 'static let eventTopic = "' + os.environ['EVT_TOPIC'] + '"', text, count=1)
+          text, n3 = re.subn(r'static let secret = "[^"]*"', 'static let secret = "' + os.environ['APP_SECRET'] + '"', text, count=1)
+          if (n1, n2, n3) != (1, 1, 1):
+              raise SystemExit('bridge credential fields not found exactly once')
           swift.write_text(text, encoding='utf-8')
           Path('bridge-config.json').write_text(json.dumps({
               'command_topic': os.environ['CMD_TOPIC'],
