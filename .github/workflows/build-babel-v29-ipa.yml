@@ -1,0 +1,70 @@
+name: Build BABEL V29 unsigned IPA
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    paths:
+      - 'babel-v29/**'
+      - '.github/workflows/build-babel-v29-ipa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore iOS project
+        run: |
+          set -euo pipefail
+          base64 --decode babel-v29/BabelV29App_Source.zip.b64 > BabelV29App_Source.zip
+          unzip -q BabelV29App_Source.zip
+          test -f BabelV29App/OneWinClock.xcodeproj/project.pbxproj
+
+      - name: Xcode info
+        run: |
+          xcodebuild -version
+          xcodebuild -project BabelV29App/OneWinClock.xcodeproj -list
+
+      - name: Build unsigned iPhone app
+        run: |
+          set -euo pipefail
+          BUILD_DIR="$RUNNER_TEMP/BabelV29Build"
+          xcodebuild \
+            -project BabelV29App/OneWinClock.xcodeproj \
+            -scheme OneWinClock \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath "$BUILD_DIR" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+          APP_PATH="$BUILD_DIR/Build/Products/Release-iphoneos/OneWinClock.app"
+          test -d "$APP_PATH"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$APP_PATH/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Info.plist"
+
+          rm -rf "$RUNNER_TEMP/Payload"
+          mkdir -p "$RUNNER_TEMP/Payload"
+          cp -R "$APP_PATH" "$RUNNER_TEMP/Payload/"
+          cd "$RUNNER_TEMP"
+          /usr/bin/zip -qry "$GITHUB_WORKSPACE/BABEL-V29-APP-unsigned.ipa" Payload
+          test -s "$GITHUB_WORKSPACE/BABEL-V29-APP-unsigned.ipa"
+          ls -lh "$GITHUB_WORKSPACE/BABEL-V29-APP-unsigned.ipa"
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: BABEL-V29-APP-unsigned-IPA
+          path: BABEL-V29-APP-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30
