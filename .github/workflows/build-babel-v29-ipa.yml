@@ -21,12 +21,40 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Restore iOS project
+      - name: Restore sanitized iOS project
         run: |
           set -euo pipefail
           base64 -D -i babel-v29/BabelV29App_Source.zip.b64 -o BabelV29App_Source.zip
           unzip -q BabelV29App_Source.zip
           test -f BabelV29App/OneWinClock.xcodeproj/project.pbxproj
+
+      - name: Generate private bridge credentials
+        run: |
+          set -euo pipefail
+          export CMD_TOPIC="babelv29-cmd-$(openssl rand -hex 24)"
+          export EVT_TOPIC="babelv29-evt-$(openssl rand -hex 24)"
+          export APP_SECRET="$(openssl rand -hex 32)"
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, os
+          swift = Path('BabelV29App/OneWinClock/ViewController.swift')
+          text = swift.read_text(encoding='utf-8')
+          replacements = {
+              '__BABEL_CMD_TOPIC__': os.environ['CMD_TOPIC'],
+              '__BABEL_EVT_TOPIC__': os.environ['EVT_TOPIC'],
+              '__BABEL_APP_SECRET__': os.environ['APP_SECRET'],
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f'missing placeholder: {old}')
+              text = text.replace(old, new)
+          swift.write_text(text, encoding='utf-8')
+          Path('bridge-config.json').write_text(json.dumps({
+              'command_topic': os.environ['CMD_TOPIC'],
+              'event_topic': os.environ['EVT_TOPIC'],
+              'secret': os.environ['APP_SECRET'],
+          }, ensure_ascii=False), encoding='utf-8')
+          PY
 
       - name: Xcode info
         run: |
@@ -61,10 +89,12 @@ jobs:
           test -s "$GITHUB_WORKSPACE/BABEL-V29-APP-unsigned.ipa"
           ls -lh "$GITHUB_WORKSPACE/BABEL-V29-APP-unsigned.ipa"
 
-      - name: Upload IPA
+      - name: Upload secure package
         uses: actions/upload-artifact@v4
         with:
-          name: BABEL-V29-APP-unsigned-IPA
-          path: BABEL-V29-APP-unsigned.ipa
+          name: BABEL-V29-APP-secure-package
+          path: |
+            BABEL-V29-APP-unsigned.ipa
+            bridge-config.json
           if-no-files-found: error
           retention-days: 30
