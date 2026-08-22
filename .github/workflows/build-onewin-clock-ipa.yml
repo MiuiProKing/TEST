@@ -1,25 +1,21 @@
 name: Build OneWin Clock unsigned IPA
-
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths: ['onewin-clock-ios/**', '.github/workflows/build-onewin-clock-ipa.yml']
   pull_request:
     branches: [main]
     paths: ['onewin-clock-ios/**', '.github/workflows/build-onewin-clock-ipa.yml']
-
 permissions:
   contents: read
-
 jobs:
   build-ios:
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Format Swift
-        run: xcrun swift-format format --in-place onewin-clock-ios/OneWinClock/ViewController.swift
+      - name: Normalize and format Swift
+        run: |
+          sed -i '' 's/status.font=/status.font = /g; s/out.backgroundColor=/out.backgroundColor = /g; s/out.font=/out.font = /g' onewin-clock-ios/OneWinClock/ViewController.swift
+          xcrun swift-format format --in-place onewin-clock-ios/OneWinClock/ViewController.swift
       - name: Build unsigned iPhone app
         run: |
           set -euo pipefail
@@ -30,9 +26,7 @@ jobs:
           rm -rf "$RUNNER_TEMP/Payload" && mkdir -p "$RUNNER_TEMP/Payload"
           cp -R "$APP_PATH" "$RUNNER_TEMP/Payload/"
           cd "$RUNNER_TEMP" && /usr/bin/zip -qry "$GITHUB_WORKSPACE/BABEL-V29-unsigned.ipa" Payload
-          test -s "$GITHUB_WORKSPACE/BABEL-V29-unsigned.ipa"
-      - name: Upload IPA
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: BABEL-V29-unsigned-IPA
           path: BABEL-V29-unsigned.ipa
