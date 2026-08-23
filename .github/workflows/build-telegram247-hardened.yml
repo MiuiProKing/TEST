@@ -1,4 +1,4 @@
-name: Build Telegram 24/7 HARDENED IPA
+name: Build Telegram 24/7 HARDENED V2.2 QR
 
 on:
   workflow_dispatch:
@@ -6,12 +6,7 @@ on:
     branches: [main]
     paths:
       - 'telegram247/**'
-      - '.github/workflows/build-telegram247-hardened.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'telegram247/**'
-      - '.github/workflows/build-telegram247-hardened.yml'
+      - '.github/workflows/build-telegram247-v22-qr.yml'
 
 permissions:
   contents: read
@@ -24,200 +19,240 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Apply ntfy rate-limit hotfix
+      - name: Apply relay hotfix and QR login
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
+          import textwrap
 
           swift = Path('telegram247/Telegram247App/OneWinClock/ViewController.swift')
           s = swift.read_text(encoding='utf-8')
-          if 'withTimeInterval: 2.0' not in s:
-              raise SystemExit('old 2 second polling interval not found')
-          s = s.replace('withTimeInterval: 2.0', 'withTimeInterval: 6.2', 1)
+          s = s.replace('import Security\n', 'import Security\nimport CoreImage\n', 1)
+          s = s.replace('    let state: String?\n}', '    let state: String?\n    let qrURL: String?\n}', 1)
+          old_event = 'events.append(ServerEvent(id: id, kind: json["kind"] as? String ?? "message", text: json["text"] as? String ?? "", state: json["state"] as? String))'
+          new_event = 'events.append(ServerEvent(id: id, kind: json["kind"] as? String ?? "message", text: json["text"] as? String ?? "", state: json["state"] as? String, qrURL: json["qr_url"] as? String))'
+          if old_event not in s: raise SystemExit('ServerEvent parser marker missing')
+          s = s.replace(old_event, new_event, 1)
+          old_props = 'private let statusLabel = UILabel(), outputView = UITextView(), apiIdField = UITextField(), apiHashField = UITextField(), phoneField = UITextField(), codeField = UITextField(), passwordField = UITextField(), clockLabel = UILabel()'
+          new_props = old_props + ', qrImageView = UIImageView(), qrOpenButton = UIButton(type: .system)'
+          if old_props not in s: raise SystemExit('properties marker missing')
+          s = s.replace(old_props, new_props, 1)
+          s = s.replace('private var didRequestUnlock = false', 'private var didRequestUnlock = false\n    private var currentQRURL: String?', 1)
+
+          old_login = 'loginPanel.addArrangedSubview(field(phoneField, placeholder: "+380… номер телефона", keyboard: .phonePad)); loginPanel.addArrangedSubview(actionButton("1. 📩 ПОЛУЧИТЬ КОД", color: blue, selector: #selector(requestCode)));'
+          new_login = '''loginPanel.addArrangedSubview(field(phoneField, placeholder: "+380… номер телефона", keyboard: .phonePad)); loginPanel.addArrangedSubview(actionButton("🔳 ВОЙТИ ПО QR / ОТКРЫТЬ TELEGRAM", color: blue, selector: #selector(requestQR))); qrImageView.contentMode = .scaleAspectFit; qrImageView.backgroundColor = .white; qrImageView.layer.cornerRadius = 12; qrImageView.clipsToBounds = true; qrImageView.isHidden = true; qrImageView.heightAnchor.constraint(equalToConstant: 220).isActive = true; loginPanel.addArrangedSubview(qrImageView); qrOpenButton.setTitle("📲 ОТКРЫТЬ QR-ВХОД В TELEGRAM", for: .normal); qrOpenButton.setTitleColor(.white, for: .normal); qrOpenButton.titleLabel?.font = .systemFont(ofSize: 15, weight: .bold); qrOpenButton.backgroundColor = secondary; qrOpenButton.layer.cornerRadius = 12; qrOpenButton.heightAnchor.constraint(equalToConstant: 50).isActive = true; qrOpenButton.addTarget(self, action: #selector(openQRInTelegram), for: .touchUpInside); qrOpenButton.isHidden = true; loginPanel.addArrangedSubview(qrOpenButton); loginPanel.addArrangedSubview(actionButton("1. 📩 ПОЛУЧИТЬ КОД", color: blue, selector: #selector(requestCode)));'''
+          if old_login not in s: raise SystemExit('login panel marker missing')
+          s = s.replace(old_login, new_login, 1)
+
+          marker = '    @objc private func requestCode() {'
+          qr_methods = '''    @objc private func requestQR() {
+              view.endEditing(true)
+              let apiText = (apiIdField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+              let hash = (apiHashField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+              let phone = (phoneField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+              guard let apiId = Int(apiText), apiId > 0, hash.count >= 20 else { append("❌ Заполни API ID и API HASH."); return }
+              identity.saveAPICredentials(apiID: apiId, apiHash: hash, phone: phone)
+              currentQRURL = nil; qrImageView.isHidden = true; qrOpenButton.isHidden = true
+              send("login_qr", fields: ["api_id": apiId, "api_hash": hash, "phone": phone])
+              append("🔳 Запросил одноразовый QR-вход. Жду токен от Telegram…")
+          }
+          @objc private func openQRInTelegram() {
+              guard let text = currentQRURL, let url = URL(string: text) else { append("❌ Сначала нажми «ВОЙТИ ПО QR»."); return }
+              UIApplication.shared.open(url, options: [:]) { [weak self] ok in
+                  DispatchQueue.main.async { self?.append(ok ? "📲 Открыл Telegram. Подтверди новый вход." : "⚠️ Не удалось открыть Telegram. Отсканируй QR с другого авторизованного устройства.") }
+              }
+          }
+          private func showQR(_ text: String) {
+              guard let data = text.data(using: .utf8), let filter = CIFilter(name: "CIQRCodeGenerator") else { return }
+              filter.setValue(data, forKey: "inputMessage"); filter.setValue("M", forKey: "inputCorrectionLevel")
+              guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 8, y: 8)) else { return }
+              qrImageView.image = UIImage(ciImage: output); qrImageView.isHidden = false; qrOpenButton.isHidden = false
+          }
+
+'''
+          if marker not in s: raise SystemExit('requestCode marker missing')
+          s = s.replace(marker, qr_methods + marker, 1)
+          handle_marker = 'private func handle(_ event: ServerEvent) { if event.kind == "paired"'
+          handle_repl = 'private func handle(_ event: ServerEvent) { if let qr = event.qrURL { currentQRURL = qr; showQR(qr); append("🔳 QR готов. Нажми «ОТКРЫТЬ QR-ВХОД В TELEGRAM» или отсканируй изображение другим устройством.") }; if event.kind == "login_ok" { currentQRURL = nil; qrImageView.isHidden = true; qrOpenButton.isHidden = true }; if event.kind == "paired"'
+          if handle_marker not in s: raise SystemExit('handle marker missing')
+          s = s.replace(handle_marker, handle_repl, 1)
+          if 'withTimeInterval: 2.0' in s:
+              s = s.replace('withTimeInterval: 2.0', 'withTimeInterval: 6.2', 1)
           swift.write_text(s, encoding='utf-8')
 
           server = Path('telegram247/Telegram24_Server.py')
           text = server.read_text(encoding='utf-8')
+          text = text.replace('online_task = None\nonline_enabled = load_settings()', 'online_task = None\nqr_task = None\nonline_enabled = load_settings()', 1)
+          qr_server = r'''async def qr_login_waiter(c, qr, api_id, api_hash, phone):
+              global pending, qr_task
+              try:
+                  await qr.wait()
+              except SessionPasswordNeededError:
+                  pending = {"client": c, "api_id": int(api_id), "api_hash": str(api_hash), "phone": str(phone or ""), "qr": True, "created_at": time.time()}
+                  qr_task = None
+                  emit("need_2fa", "🔒 QR подтверждён. Теперь введи облачный пароль 2FA.", state="connected")
+                  return
+              except asyncio.TimeoutError:
+                  if pending and pending.get("client") is c:
+                      pending = None
+                  try: await c.disconnect()
+                  except Exception: pass
+                  qr_task = None
+                  emit("qr_expired", "⌛ QR-код истёк. Нажми «ВОЙТИ ПО QR» ещё раз.", state="connected")
+                  return
+              except Exception as exc:
+                  if pending and pending.get("client") is c:
+                      pending = None
+                  try: await c.disconnect()
+                  except Exception: pass
+                  qr_task = None
+                  emit("qr_error", f"❌ QR-вход: {type(exc).__name__}: {str(exc)[:160]}", state="connected")
+                  return
+              await finalize_login(c, api_id, api_hash, phone or "")
+              qr_task = None
+
+
+          async def login_qr(api_id, api_hash, phone=""):
+              global pending, qr_task
+              if _vault_key is None:
+                  raise RuntimeError("сначала разблокируй сервер из IPA")
+              if pending and pending.get("client"):
+                  try: await pending["client"].disconnect()
+                  except Exception: pass
+              if qr_task is not None and not qr_task.done():
+                  qr_task.cancel()
+              c = TelegramClient(StringSession(), int(api_id), str(api_hash), device_model="Telegram 24/7 Hardened", app_version="2.2")
+              await c.connect()
+              qr = await c.qr_login()
+              pending = {"client": c, "api_id": int(api_id), "api_hash": str(api_hash), "phone": str(phone or ""), "qr": True, "created_at": time.time()}
+              emit("qr_ready", "🔳 Одноразовый QR-вход готов. Открой его в уже авторизованном Telegram и подтверди новый вход.", state="connected", qr_url=qr.url, qr_expires=int(qr.expires.timestamp()))
+              qr_task = asyncio.create_task(qr_login_waiter(c, qr, api_id, api_hash, phone))
+
+
+'''
+          marker2 = 'async def login_start(api_id, api_hash, phone):'
+          if marker2 not in text: raise SystemExit('server login_start marker missing')
+          text = text.replace(marker2, textwrap.dedent(qr_server) + marker2, 1)
+          exec_marker = 'if action == "login_start": return run_coro(login_start(fields.get("api_id"), fields.get("api_hash"), fields.get("phone")))'
+          if exec_marker not in text: raise SystemExit('execute command marker missing')
+          text = text.replace(exec_marker, 'if action == "login_qr": return run_coro(login_qr(fields.get("api_id"), fields.get("api_hash"), fields.get("phone")))\n    ' + exec_marker, 1)
+
           start = text.index('def command_loop():')
           end = text.index('\ndef main():', start)
           replacement = r'''def process_command_message(message_text):
               try:
                   cmd, device = verify_signed_envelope(open_json(message_text))
                   request_id = str(cmd.get("request_id") or "")
-                  if request_id and request_id in _seen_set:
-                      return
+                  if request_id and request_id in _seen_set: return
                   ts_ms = int(cmd.get("ts_ms") or 0)
                   if abs(int(time.time() * 1000) - ts_ms) > COMMAND_MAX_AGE_MS:
-                      if request_id:
-                          remember_seen(request_id)
+                      if request_id: remember_seen(request_id)
                       return
-                  if request_id:
-                      remember_seen(request_id)
+                  if request_id: remember_seen(request_id)
                   execute_command(cmd, device)
-              except (PhoneCodeInvalidError, PhoneCodeExpiredError):
-                  emit("login_error", "❌ Код неверный или уже истёк. Запроси новый код.", state="connected")
-              except PasswordHashInvalidError:
-                  emit("login_error", "❌ Неверный пароль 2FA.", state="connected")
-              except FloodWaitError as exc:
-                  emit("flood_wait", f"⏳ Telegram временно ограничил запрос. Подожди {getattr(exc, 'seconds', '?')} сек.", state="connected")
-              except PermissionError as exc:
-                  emit("security_error", "🚫 Команда отклонена защитой: " + str(exc)[:180], state="connected")
-              except Exception as exc:
-                  emit("error", f"❌ {type(exc).__name__}: {str(exc)[:220]}", state="connected")
+              except (PhoneCodeInvalidError, PhoneCodeExpiredError): emit("login_error", "❌ Код неверный или уже истёк.", state="connected")
+              except PasswordHashInvalidError: emit("login_error", "❌ Неверный пароль 2FA.", state="connected")
+              except FloodWaitError as exc: emit("flood_wait", f"⏳ Telegram просит паузу {getattr(exc, 'seconds', '?')} сек.", state="connected")
+              except PermissionError as exc: emit("security_error", "🚫 Команда отклонена защитой: " + str(exc)[:180], state="connected")
+              except Exception as exc: emit("error", f"❌ {type(exc).__name__}: {str(exc)[:220]}", state="connected")
 
 
           def command_loop():
-              print("Telegram 24/7 HARDENED bridge started (stream mode)", flush=True)
+              print("Telegram 24/7 HARDENED V2.2 bridge started (stream mode)", flush=True)
               backoff = 2
               while True:
                   try:
-                      with http.get(
-                          f"{NTFY_BASE}/{CMD_TOPIC}/json",
-                          params={"since": "10s"},
-                          stream=True,
-                          timeout=(10, 90),
-                          headers={"Cache-Control": "no-cache"},
-                      ) as r:
+                      with http.get(f"{NTFY_BASE}/{CMD_TOPIC}/json", params={"since": "10s"}, stream=True, timeout=(10, 90), headers={"Cache-Control": "no-cache"}) as r:
                           if r.status_code == 429:
                               retry = r.headers.get("Retry-After")
-                              try:
-                                  wait = max(10, int(retry)) if retry else 30
-                              except Exception:
-                                  wait = 30
-                              print(f"BRIDGE RATE LIMIT 429: sleeping {wait}s", flush=True)
-                              time.sleep(wait)
-                              continue
-                          r.raise_for_status()
-                          backoff = 2
+                              try: wait = max(10, int(retry)) if retry else 30
+                              except Exception: wait = 30
+                              time.sleep(wait); continue
+                          r.raise_for_status(); backoff = 2
                           for raw_line in r.iter_lines(decode_unicode=True):
-                              if not raw_line:
-                                  continue
-                              try:
-                                  env = json.loads(raw_line)
-                              except Exception:
-                                  continue
-                              event = env.get("event")
-                              if event in ("open", "keepalive"):
-                                  continue
-                              if event == "message" and env.get("message"):
-                                  process_command_message(env["message"])
+                              if not raw_line: continue
+                              try: env = json.loads(raw_line)
+                              except Exception: continue
+                              if env.get("event") in ("open", "keepalive"): continue
+                              if env.get("event") == "message" and env.get("message"): process_command_message(env["message"])
                   except requests.exceptions.ReadTimeout:
                       continue
                   except Exception as exc:
                       print(f"BRIDGE ERROR: {type(exc).__name__}: {exc}; retry in {backoff}s", flush=True)
-                      time.sleep(backoff)
-                      backoff = min(backoff * 2, 60)
+                      time.sleep(backoff); backoff = min(backoff * 2, 60)
           '''
-          import textwrap
-          replacement = textwrap.dedent(replacement)
-          server.write_text(text[:start] + replacement + text[end:], encoding='utf-8')
+          server.write_text(text[:start] + textwrap.dedent(replacement) + text[end:], encoding='utf-8')
           PY
 
       - name: Generate private pair credentials
         run: |
           set -euo pipefail
-          export CMD_TOPIC="tg247h-cmd-$(openssl rand -hex 24)"
-          export EVT_TOPIC="tg247h-evt-$(openssl rand -hex 24)"
+          export CMD_TOPIC="tg247q-cmd-$(openssl rand -hex 24)"
+          export EVT_TOPIC="tg247q-evt-$(openssl rand -hex 24)"
           export PAIR_SECRET="$(openssl rand -hex 32)"
           python3 - <<'PY'
           from pathlib import Path
           import os
-          pairs = {
-              '__TG247H_CMD_TOPIC__': os.environ['CMD_TOPIC'],
-              '__TG247H_EVT_TOPIC__': os.environ['EVT_TOPIC'],
-              '__TG247H_PAIR_SECRET__': os.environ['PAIR_SECRET'],
-          }
-          targets = [
-              Path('telegram247/Telegram247App/OneWinClock/ViewController.swift'),
-              Path('telegram247/Telegram24_Server.py'),
-          ]
-          for path in targets:
+          pairs = {'__TG247H_CMD_TOPIC__': os.environ['CMD_TOPIC'], '__TG247H_EVT_TOPIC__': os.environ['EVT_TOPIC'], '__TG247H_PAIR_SECRET__': os.environ['PAIR_SECRET']}
+          for path in [Path('telegram247/Telegram247App/OneWinClock/ViewController.swift'), Path('telegram247/Telegram24_Server.py')]:
               text = path.read_text(encoding='utf-8')
               for old, new in pairs.items():
-                  if old not in text:
-                      raise SystemExit(f'{old} missing in {path}')
+                  if old not in text: raise SystemExit(f'{old} missing in {path}')
                   text = text.replace(old, new)
-              for old in pairs:
-                  if old in text:
-                      raise SystemExit(f'unresolved {old} in {path}')
               path.write_text(text, encoding='utf-8')
-          Path('Telegram24_Server_HARDENED_PAIRED.py').write_text(Path('telegram247/Telegram24_Server.py').read_text(encoding='utf-8'), encoding='utf-8')
+          Path('Telegram24_Server_HARDENED_V22_PAIRED.py').write_text(Path('telegram247/Telegram24_Server.py').read_text(encoding='utf-8'), encoding='utf-8')
           PY
 
-      - name: Harden app metadata
+      - name: Set V2.2 metadata
         run: |
           python3 - <<'PY'
           from pathlib import Path
           info = Path('telegram247/Telegram247App/OneWinClock/Info.plist')
           s = info.read_text(encoding='utf-8')
-          s = s.replace('<key>CFBundleDisplayName</key><string>Telegram 24/7</string>', '<key>CFBundleDisplayName</key><string>TG 24/7 Secure</string>')
-          s = s.replace('<key>CFBundleShortVersionString</key><string>1.0</string>', '<key>CFBundleShortVersionString</key><string>2.1</string>')
-          s = s.replace('<key>CFBundleVersion</key><string>1</string>', '<key>CFBundleVersion</key><string>3</string>')
+          s = s.replace('<key>CFBundleDisplayName</key><string>Telegram 24/7</string>', '<key>CFBundleDisplayName</key><string>TG 24/7 QR Secure</string>')
+          s = s.replace('<key>CFBundleShortVersionString</key><string>1.0</string>', '<key>CFBundleShortVersionString</key><string>2.2</string>')
+          s = s.replace('<key>CFBundleVersion</key><string>1</string>', '<key>CFBundleVersion</key><string>4</string>')
           info.write_text(s, encoding='utf-8')
           pbx = Path('telegram247/Telegram247App/OneWinClock.xcodeproj/project.pbxproj')
-          t = pbx.read_text(encoding='utf-8').replace('com.miuiproking.telegram247', 'com.miuiproking.telegram247hardened')
-          pbx.write_text(t, encoding='utf-8')
+          pbx.write_text(pbx.read_text(encoding='utf-8').replace('com.miuiproking.telegram247', 'com.miuiproking.telegram247hardened'), encoding='utf-8')
           PY
 
-      - name: Validate hardened Python
-        run: python3 -m py_compile Telegram24_Server_HARDENED_PAIRED.py
-
-      - name: Verify hotfix
+      - name: Validate V2.2
         run: |
+          python3 -m py_compile Telegram24_Server_HARDENED_V22_PAIRED.py
+          grep -q 'login_qr' Telegram24_Server_HARDENED_V22_PAIRED.py
+          grep -q 'qr_url' Telegram24_Server_HARDENED_V22_PAIRED.py
+          grep -q 'ВОЙТИ ПО QR' telegram247/Telegram247App/OneWinClock/ViewController.swift
           grep -q 'withTimeInterval: 6.2' telegram247/Telegram247App/OneWinClock/ViewController.swift
-          grep -q 'stream mode' Telegram24_Server_HARDENED_PAIRED.py
-
-      - name: Xcode info
-        run: |
-          xcodebuild -version
-          xcodebuild -project telegram247/Telegram247App/OneWinClock.xcodeproj -list
 
       - name: Build unsigned iPhone app
         run: |
           set -euo pipefail
-          BUILD_DIR="$RUNNER_TEMP/Telegram247HardenedBuild"
-          xcodebuild \
-            -project telegram247/Telegram247App/OneWinClock.xcodeproj \
-            -scheme OneWinClock \
-            -configuration Release \
-            -sdk iphoneos \
-            -derivedDataPath "$BUILD_DIR" \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            build
+          BUILD_DIR="$RUNNER_TEMP/Telegram247V22Build"
+          xcodebuild -project telegram247/Telegram247App/OneWinClock.xcodeproj -scheme OneWinClock -configuration Release -sdk iphoneos -derivedDataPath "$BUILD_DIR" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
           APP_PATH="$BUILD_DIR/Build/Products/Release-iphoneos/OneWinClock.app"
           test -d "$APP_PATH"
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$APP_PATH/Info.plist"
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Info.plist"
-          rm -rf "$RUNNER_TEMP/Payload"
-          mkdir -p "$RUNNER_TEMP/Payload"
-          cp -R "$APP_PATH" "$RUNNER_TEMP/Payload/"
-          cd "$RUNNER_TEMP"
-          /usr/bin/zip -qry "$GITHUB_WORKSPACE/Telegram-24-7-HARDENED-HOTFIX-unsigned.ipa" Payload
-          test -s "$GITHUB_WORKSPACE/Telegram-24-7-HARDENED-HOTFIX-unsigned.ipa"
-          ls -lh "$GITHUB_WORKSPACE/Telegram-24-7-HARDENED-HOTFIX-unsigned.ipa"
+          rm -rf "$RUNNER_TEMP/Payload"; mkdir -p "$RUNNER_TEMP/Payload"; cp -R "$APP_PATH" "$RUNNER_TEMP/Payload/"
+          cd "$RUNNER_TEMP"; /usr/bin/zip -qry "$GITHUB_WORKSPACE/Telegram-24-7-HARDENED-V22-QR-unsigned.ipa" Payload
 
       - name: Make readme
         run: |
-          cat > HARDENED_HOTFIX_README_RU.txt <<'TXT'
-          TELEGRAM 24/7 HARDENED V2.1 HOTFIX
-          Исправлен лимит ntfy: iPhone опрашивает ответы раз в 6.2 сек, Python использует одно постоянное JSON-stream соединение.
-          IPA и Python из этого артефакта — одна приватная пара.
-          Загрузить на сервер: Telegram24_Server_HARDENED_PAIRED.py
-          Подписать и установить: Telegram-24-7-HARDENED-HOTFIX-unsigned.ipa
-          Старую пару остановить/заменить целиком.
-          После запуска Python открой IPA, подожди 5-10 сек и нажми ПРОВЕРИТЬ ПОДКЛЮЧЕНИЕ перед запросом кода Telegram.
+          cat > TELEGRAM247_V22_README_RU.txt <<'TXT'
+          TELEGRAM 24/7 HARDENED V2.2 QR
+          Основной вход: QR / tg://login token. SMS-код оставлен как запасной вариант.
+          Установить IPA и загрузить на сервер Python из ЭТОЙ ЖЕ сборки — это приватная пара.
+          Нажми ВОЙТИ ПО QR, затем ОТКРЫТЬ QR-ВХОД В TELEGRAM и подтверди новый вход в уже авторизованном Telegram.
+          Если Telegram попросит облачный пароль 2FA — введи его в IPA и нажми ПОДТВЕРДИТЬ 2FA.
           TXT
 
-      - name: Upload private hardened pair
+      - name: Upload private V2.2 pair
         uses: actions/upload-artifact@v4
         with:
-          name: Telegram-24-7-HARDENED-HOTFIX-secure-pair
+          name: Telegram-24-7-HARDENED-V22-QR-secure-pair
           path: |
-            Telegram-24-7-HARDENED-HOTFIX-unsigned.ipa
-            Telegram24_Server_HARDENED_PAIRED.py
-            HARDENED_HOTFIX_README_RU.txt
+            Telegram-24-7-HARDENED-V22-QR-unsigned.ipa
+            Telegram24_Server_HARDENED_V22_PAIRED.py
+            TELEGRAM247_V22_README_RU.txt
           if-no-files-found: error
           retention-days: 30
