@@ -1,7 +1,7 @@
 import UIKit
 import WebKit
 
-private struct RoundSample: Equatable {
+private struct RoundSample: Codable, Equatable {
     let id: String
     let coefficient: Double
 }
@@ -165,6 +165,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private let selectedModeKey = "onewinclock.selectedMode.v3"
     private let autoBotKey = "onewinclock.autoBot.v3"
     private let statsKey = "onewinclock.botStats.v3"
+    private let roundCacheKey = "onewinclock.roundCache.v3"
 
     private let processPool = WKProcessPool()
     private let tabs = UISegmentedControl(items: ["BABEL", "ПРОГНОЗЫ", "1WIN"])
@@ -240,12 +241,30 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
            let saved = try? JSONDecoder().decode([String: BotStats].self, from: data) {
             botStats = saved
         }
+        if let data = UserDefaults.standard.data(forKey: roundCacheKey),
+           let saved = try? JSONDecoder().decode([RoundSample].self, from: data) {
+            latestRounds = Array(saved.prefix(500))
+        }
     }
 
     private func saveStats() {
         if let data = try? JSONEncoder().encode(botStats) {
             UserDefaults.standard.set(data, forKey: statsKey)
         }
+    }
+
+    private func saveRoundCache() {
+        if let data = try? JSONEncoder().encode(Array(latestRounds.prefix(500))) {
+            UserDefaults.standard.set(data, forKey: roundCacheKey)
+        }
+    }
+
+    @discardableResult
+    private func mergeHistory(_ fetched: [RoundSample]) -> [RoundSample] {
+        let fetchedIDs = Set(fetched.map(\.id))
+        latestRounds = Array((fetched + latestRounds.filter { !fetchedIDs.contains($0.id) }).prefix(500))
+        saveRoundCache()
+        return latestRounds
     }
 
     private func buildUI() {
@@ -507,9 +526,9 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         }
     }
 
-    private func acceptLiveRounds(_ rounds: [RoundSample]) {
-        guard let newest = rounds.first else { return }
-        latestRounds = rounds
+    private func acceptLiveRounds(_ fetched: [RoundSample]) {
+        guard let newest = fetched.first else { return }
+        let rounds = mergeHistory(fetched)
         liveLabel.text = String(format: "LIVE %.2fx", newest.coefficient)
         let liveColor: UIColor = newest.coefficient >= 10 ? .systemRed : .systemGreen
         liveLabel.textColor = liveColor
@@ -640,11 +659,11 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 guard let self else { return }
                 switch result {
                 case .success(let rounds):
-                    self.latestRounds = rounds
-                    self.status.text = "● LIVE OK • получено \(rounds.count) раундов"
+                    let history = self.mergeHistory(rounds)
+                    self.status.text = "● LIVE OK • API \(rounds.count), накоплено \(history.count)"
                     self.status.textColor = .systemGreen
-                    let values = rounds.prefix(14).map { String(format: "%.2fx", $0.coefficient) }.joined(separator: " • ")
-                    self.output.text = "✅ LuckyJet подключён\n✅ session-id принят сервером\n✅ Получено раундов: \(rounds.count)\n\nПоследние:\n\(values)\n\nRocket Queen не проверялась и не изменялась."
+                    let values = history.prefix(14).map { String(format: "%.2fx", $0.coefficient) }.joined(separator: " • ")
+                    self.output.text = "✅ LuckyJet подключён\n✅ session-id принят сервером\n✅ API вернул: \(rounds.count)\n✅ Накоплено в приложении: \(history.count)/500\n\nПоследние:\n\(values)\n\nRocket Queen не проверялась и не изменялась."
                 case .failure(let error):
                     self.status.text = "● ошибка LuckyJet API"
                     self.status.textColor = .systemRed
@@ -1009,7 +1028,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     private func grandForecast(_ values: [Double]) -> Forecast {
-        guard values.count >= 30 else { return waitingForecast(.grand, reason: "Для GRAND нужно минимум 30 раундов") }
+        guard values.count >= 20 else { return waitingForecast(.grand, reason: "Для GRAND нужно минимум 20 раундов") }
         let metrics = marketMetrics(values)
         let result = grandComponents(metrics)
         let ready = result.confidence >= 62 && result.power >= 0.54 && metrics.gap10 >= 6
@@ -1017,7 +1036,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     private func babelAutoForecast(_ values: [Double]) -> Forecast {
-        guard values.count >= 30 else { return waitingForecast(.babelAuto, reason: "BABEL AUTO собирает минимум 30 раундов") }
+        guard values.count >= 20 else { return waitingForecast(.babelAuto, reason: "BABEL AUTO собирает минимум 20 раундов") }
         let metrics = marketMetrics(values)
         let grand = grandComponents(metrics)
         if grand.power >= 0.54 || (metrics.gap10 >= 10 && metrics.timeScore >= 0.72 && grand.power >= 0.46) {
@@ -1030,7 +1049,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     private func duoForecast(_ values: [Double]) -> Forecast {
-        guard values.count >= 30 else { return waitingForecast(.duo, reason: "DUO собирает минимум 30 раундов") }
+        guard values.count >= 20 else { return waitingForecast(.duo, reason: "DUO собирает минимум 20 раундов") }
         let metrics = marketMetrics(values)
         let grand = grandComponents(metrics)
         let petit = petitComponents(metrics)
@@ -1117,7 +1136,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     private func fusionForecast(_ values: [Double]) -> Forecast {
-        guard values.count >= 60 else { return waitingForecast(.fusion, reason: "FUSION требует минимум 60 завершённых раундов") }
+        guard values.count >= 20 else { return waitingForecast(.fusion, reason: "FUSION требует минимум 20 завершённых раундов") }
         let safe = fusionCandidate(values: values, name: "SAFE", choices: [(2.00, 0.50), (1.80, 0.56), (1.50, 0.60)], probabilityThreshold: 0.58, qualityThreshold: 51, horizon: 1, insurance: nil)
         let pro = fusionCandidate(values: values, name: "PRO", choices: [(5.00, 0.31), (3.00, 0.52), (2.50, 0.58)], probabilityThreshold: 0.46, qualityThreshold: 52, horizon: 3, insurance: 2.0)
         let ten = fusionCandidate(values: values, name: "TEN", choices: [(10.00, 0.0)], probabilityThreshold: 0.23, qualityThreshold: 53, horizon: 3, insurance: 3.0)
@@ -1128,7 +1147,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             fusionDecisionScore(lhs) < fusionDecisionScore(rhs)
         } ?? safe
         let confidence = Int(round(clamp(selected.probability * 100, 1, 99)))
-        return Forecast(mode: .fusion, title: "🧠 FUSION AUTO → \(selected.name)", target: selected.target, insurance: selected.insurance, confidence: confidence, waitRounds: selected.waitRounds, attempts: selected.horizon, ready: selected.ready, reason: selected.reason, detail: String(format: "AUTO сравнил SAFE/PRO/TEN • quality %.1f", selected.quality))
+        return Forecast(mode: .fusion, title: "🧠 FUSION AUTO → \(selected.name)", target: selected.target, insurance: selected.insurance, confidence: confidence, waitRounds: selected.waitRounds, attempts: selected.horizon, ready: selected.ready, reason: selected.reason, detail: String(format: "AUTO сравнил SAFE/PRO/TEN • quality %.1f • история %d/500", selected.quality, values.count))
     }
 
     private func fusionCandidate(values: [Double], name: String, choices: [(Double, Double)], probabilityThreshold: Double, qualityThreshold: Double, horizon: Int, insurance: Double?) -> FusionCandidate {
@@ -1195,7 +1214,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     private func pro4Forecast(_ values: [Double]) -> Forecast {
-        guard values.count >= 30 else { return waitingForecast(.pro4, reason: "PRO4 собирает минимум 30 раундов") }
+        guard values.count >= 20 else { return waitingForecast(.pro4, reason: "PRO4 собирает минимум 20 раундов") }
         let since10 = gap(values, target: 10)
         let recent = Array(values.prefix(24))
         let low = rate(recent) { $0 < 1.5 }
@@ -1215,7 +1234,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     private func pro4RangeForecast(_ values: [Double]) -> Forecast {
-        guard values.count >= 40 else { return waitingForecast(.pro4Range, reason: "PRO4 RANGE собирает минимум 40 раундов") }
+        guard values.count >= 20 else { return waitingForecast(.pro4Range, reason: "PRO4 RANGE собирает минимум 20 раундов") }
         let since10 = gap(values, target: 10)
         let recent = Array(values.prefix(30))
         let low = rate(recent) { $0 < 1.5 }
@@ -1243,7 +1262,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     private func bigTimeForecast(_ values: [Double]) -> Forecast {
-        guard values.count >= 30 else { return waitingForecast(.bigTime, reason: "10X–100X собирает минимум 30 раундов") }
+        guard values.count >= 20 else { return waitingForecast(.bigTime, reason: "10X–100X собирает минимум 20 раундов") }
         let chrono = Array(values.prefix(180).reversed())
         let intervals = tenIntervals(chrono)
         guard !intervals.intervals.isEmpty else { return waitingForecast(.bigTime, reason: "Нужно накопить минимум два события 10x+") }
