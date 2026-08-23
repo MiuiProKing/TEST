@@ -24,6 +24,96 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Apply ntfy rate-limit hotfix
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          swift = Path('telegram247/Telegram247App/OneWinClock/ViewController.swift')
+          s = swift.read_text(encoding='utf-8')
+          if 'withTimeInterval: 2.0' not in s:
+              raise SystemExit('old 2 second polling interval not found')
+          s = s.replace('withTimeInterval: 2.0', 'withTimeInterval: 6.2', 1)
+          swift.write_text(s, encoding='utf-8')
+
+          server = Path('telegram247/Telegram24_Server.py')
+          text = server.read_text(encoding='utf-8')
+          start = text.index('def command_loop():')
+          end = text.index('\ndef main():', start)
+          replacement = r'''def process_command_message(message_text):
+              try:
+                  cmd, device = verify_signed_envelope(open_json(message_text))
+                  request_id = str(cmd.get("request_id") or "")
+                  if request_id and request_id in _seen_set:
+                      return
+                  ts_ms = int(cmd.get("ts_ms") or 0)
+                  if abs(int(time.time() * 1000) - ts_ms) > COMMAND_MAX_AGE_MS:
+                      if request_id:
+                          remember_seen(request_id)
+                      return
+                  if request_id:
+                      remember_seen(request_id)
+                  execute_command(cmd, device)
+              except (PhoneCodeInvalidError, PhoneCodeExpiredError):
+                  emit("login_error", "❌ Код неверный или уже истёк. Запроси новый код.", state="connected")
+              except PasswordHashInvalidError:
+                  emit("login_error", "❌ Неверный пароль 2FA.", state="connected")
+              except FloodWaitError as exc:
+                  emit("flood_wait", f"⏳ Telegram временно ограничил запрос. Подожди {getattr(exc, 'seconds', '?')} сек.", state="connected")
+              except PermissionError as exc:
+                  emit("security_error", "🚫 Команда отклонена защитой: " + str(exc)[:180], state="connected")
+              except Exception as exc:
+                  emit("error", f"❌ {type(exc).__name__}: {str(exc)[:220]}", state="connected")
+
+
+          def command_loop():
+              print("Telegram 24/7 HARDENED bridge started (stream mode)", flush=True)
+              backoff = 2
+              while True:
+                  try:
+                      with http.get(
+                          f"{NTFY_BASE}/{CMD_TOPIC}/json",
+                          params={"since": "10s"},
+                          stream=True,
+                          timeout=(10, 90),
+                          headers={"Cache-Control": "no-cache"},
+                      ) as r:
+                          if r.status_code == 429:
+                              retry = r.headers.get("Retry-After")
+                              try:
+                                  wait = max(10, int(retry)) if retry else 30
+                              except Exception:
+                                  wait = 30
+                              print(f"BRIDGE RATE LIMIT 429: sleeping {wait}s", flush=True)
+                              time.sleep(wait)
+                              continue
+                          r.raise_for_status()
+                          backoff = 2
+                          for raw_line in r.iter_lines(decode_unicode=True):
+                              if not raw_line:
+                                  continue
+                              try:
+                                  env = json.loads(raw_line)
+                              except Exception:
+                                  continue
+                              event = env.get("event")
+                              if event in ("open", "keepalive"):
+                                  continue
+                              if event == "message" and env.get("message"):
+                                  process_command_message(env["message"])
+                  except requests.exceptions.ReadTimeout:
+                      continue
+                  except Exception as exc:
+                      print(f"BRIDGE ERROR: {type(exc).__name__}: {exc}; retry in {backoff}s", flush=True)
+                      time.sleep(backoff)
+                      backoff = min(backoff * 2, 60)
+          '''
+          import textwrap
+          replacement = textwrap.dedent(replacement)
+          server.write_text(text[:start] + replacement + text[end:], encoding='utf-8')
+          PY
+
       - name: Generate private pair credentials
         run: |
           set -euo pipefail
@@ -62,8 +152,8 @@ jobs:
           info = Path('telegram247/Telegram247App/OneWinClock/Info.plist')
           s = info.read_text(encoding='utf-8')
           s = s.replace('<key>CFBundleDisplayName</key><string>Telegram 24/7</string>', '<key>CFBundleDisplayName</key><string>TG 24/7 Secure</string>')
-          s = s.replace('<key>CFBundleShortVersionString</key><string>1.0</string>', '<key>CFBundleShortVersionString</key><string>2.0</string>')
-          s = s.replace('<key>CFBundleVersion</key><string>1</string>', '<key>CFBundleVersion</key><string>2</string>')
+          s = s.replace('<key>CFBundleShortVersionString</key><string>1.0</string>', '<key>CFBundleShortVersionString</key><string>2.1</string>')
+          s = s.replace('<key>CFBundleVersion</key><string>1</string>', '<key>CFBundleVersion</key><string>3</string>')
           info.write_text(s, encoding='utf-8')
           pbx = Path('telegram247/Telegram247App/OneWinClock.xcodeproj/project.pbxproj')
           t = pbx.read_text(encoding='utf-8').replace('com.miuiproking.telegram247', 'com.miuiproking.telegram247hardened')
@@ -72,6 +162,11 @@ jobs:
 
       - name: Validate hardened Python
         run: python3 -m py_compile Telegram24_Server_HARDENED_PAIRED.py
+
+      - name: Verify hotfix
+        run: |
+          grep -q 'withTimeInterval: 6.2' telegram247/Telegram247App/OneWinClock/ViewController.swift
+          grep -q 'stream mode' Telegram24_Server_HARDENED_PAIRED.py
 
       - name: Xcode info
         run: |
@@ -100,29 +195,29 @@ jobs:
           mkdir -p "$RUNNER_TEMP/Payload"
           cp -R "$APP_PATH" "$RUNNER_TEMP/Payload/"
           cd "$RUNNER_TEMP"
-          /usr/bin/zip -qry "$GITHUB_WORKSPACE/Telegram-24-7-HARDENED-unsigned.ipa" Payload
-          test -s "$GITHUB_WORKSPACE/Telegram-24-7-HARDENED-unsigned.ipa"
-          ls -lh "$GITHUB_WORKSPACE/Telegram-24-7-HARDENED-unsigned.ipa"
+          /usr/bin/zip -qry "$GITHUB_WORKSPACE/Telegram-24-7-HARDENED-HOTFIX-unsigned.ipa" Payload
+          test -s "$GITHUB_WORKSPACE/Telegram-24-7-HARDENED-HOTFIX-unsigned.ipa"
+          ls -lh "$GITHUB_WORKSPACE/Telegram-24-7-HARDENED-HOTFIX-unsigned.ipa"
 
       - name: Make readme
         run: |
-          cat > HARDENED_README_RU.txt <<'TXT'
-          TELEGRAM 24/7 HARDENED V2
+          cat > HARDENED_HOTFIX_README_RU.txt <<'TXT'
+          TELEGRAM 24/7 HARDENED V2.1 HOTFIX
+          Исправлен лимит ntfy: iPhone опрашивает ответы раз в 6.2 сек, Python использует одно постоянное JSON-stream соединение.
           IPA и Python из этого артефакта — одна приватная пара.
           Загрузить на сервер: Telegram24_Server_HARDENED_PAIRED.py
-          Подписать и установить: Telegram-24-7-HARDENED-unsigned.ipa
-          После перезапуска сервера открой IPA для разблокировки зашифрованной Telegram-сессии.
-          API ID/HASH и номер сохраняются в Keychain iPhone; код Telegram и 2FA не сохраняются.
-          Команды подписываются P-256 ключом iPhone; сервер отклоняет подмену устройства.
+          Подписать и установить: Telegram-24-7-HARDENED-HOTFIX-unsigned.ipa
+          Старую пару остановить/заменить целиком.
+          После запуска Python открой IPA, подожди 5-10 сек и нажми ПРОВЕРИТЬ ПОДКЛЮЧЕНИЕ перед запросом кода Telegram.
           TXT
 
       - name: Upload private hardened pair
         uses: actions/upload-artifact@v4
         with:
-          name: Telegram-24-7-HARDENED-secure-pair
+          name: Telegram-24-7-HARDENED-HOTFIX-secure-pair
           path: |
-            Telegram-24-7-HARDENED-unsigned.ipa
+            Telegram-24-7-HARDENED-HOTFIX-unsigned.ipa
             Telegram24_Server_HARDENED_PAIRED.py
-            HARDENED_README_RU.txt
+            HARDENED_HOTFIX_README_RU.txt
           if-no-files-found: error
           retention-days: 30
