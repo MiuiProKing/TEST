@@ -1,0 +1,128 @@
+name: Build Telegram 24/7 HARDENED IPA
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'telegram247/**'
+      - '.github/workflows/build-telegram247-hardened.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'telegram247/**'
+      - '.github/workflows/build-telegram247-hardened.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate private pair credentials
+        run: |
+          set -euo pipefail
+          export CMD_TOPIC="tg247h-cmd-$(openssl rand -hex 24)"
+          export EVT_TOPIC="tg247h-evt-$(openssl rand -hex 24)"
+          export PAIR_SECRET="$(openssl rand -hex 32)"
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          pairs = {
+              '__TG247H_CMD_TOPIC__': os.environ['CMD_TOPIC'],
+              '__TG247H_EVT_TOPIC__': os.environ['EVT_TOPIC'],
+              '__TG247H_PAIR_SECRET__': os.environ['PAIR_SECRET'],
+          }
+          targets = [
+              Path('telegram247/Telegram247App/OneWinClock/ViewController.swift'),
+              Path('telegram247/Telegram24_Server.py'),
+          ]
+          for path in targets:
+              text = path.read_text(encoding='utf-8')
+              for old, new in pairs.items():
+                  if old not in text:
+                      raise SystemExit(f'{old} missing in {path}')
+                  text = text.replace(old, new)
+              for old in pairs:
+                  if old in text:
+                      raise SystemExit(f'unresolved {old} in {path}')
+              path.write_text(text, encoding='utf-8')
+          Path('Telegram24_Server_HARDENED_PAIRED.py').write_text(Path('telegram247/Telegram24_Server.py').read_text(encoding='utf-8'), encoding='utf-8')
+          PY
+
+      - name: Harden app metadata
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          info = Path('telegram247/Telegram247App/OneWinClock/Info.plist')
+          s = info.read_text(encoding='utf-8')
+          s = s.replace('<key>CFBundleDisplayName</key><string>Telegram 24/7</string>', '<key>CFBundleDisplayName</key><string>TG 24/7 Secure</string>')
+          s = s.replace('<key>CFBundleShortVersionString</key><string>1.0</string>', '<key>CFBundleShortVersionString</key><string>2.0</string>')
+          s = s.replace('<key>CFBundleVersion</key><string>1</string>', '<key>CFBundleVersion</key><string>2</string>')
+          info.write_text(s, encoding='utf-8')
+          pbx = Path('telegram247/Telegram247App/OneWinClock.xcodeproj/project.pbxproj')
+          t = pbx.read_text(encoding='utf-8').replace('com.miuiproking.telegram247', 'com.miuiproking.telegram247hardened')
+          pbx.write_text(t, encoding='utf-8')
+          PY
+
+      - name: Validate hardened Python
+        run: python3 -m py_compile Telegram24_Server_HARDENED_PAIRED.py
+
+      - name: Xcode info
+        run: |
+          xcodebuild -version
+          xcodebuild -project telegram247/Telegram247App/OneWinClock.xcodeproj -list
+
+      - name: Build unsigned iPhone app
+        run: |
+          set -euo pipefail
+          BUILD_DIR="$RUNNER_TEMP/Telegram247HardenedBuild"
+          xcodebuild \
+            -project telegram247/Telegram247App/OneWinClock.xcodeproj \
+            -scheme OneWinClock \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath "$BUILD_DIR" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+          APP_PATH="$BUILD_DIR/Build/Products/Release-iphoneos/OneWinClock.app"
+          test -d "$APP_PATH"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$APP_PATH/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Info.plist"
+          rm -rf "$RUNNER_TEMP/Payload"
+          mkdir -p "$RUNNER_TEMP/Payload"
+          cp -R "$APP_PATH" "$RUNNER_TEMP/Payload/"
+          cd "$RUNNER_TEMP"
+          /usr/bin/zip -qry "$GITHUB_WORKSPACE/Telegram-24-7-HARDENED-unsigned.ipa" Payload
+          test -s "$GITHUB_WORKSPACE/Telegram-24-7-HARDENED-unsigned.ipa"
+          ls -lh "$GITHUB_WORKSPACE/Telegram-24-7-HARDENED-unsigned.ipa"
+
+      - name: Make readme
+        run: |
+          cat > HARDENED_README_RU.txt <<'TXT'
+          TELEGRAM 24/7 HARDENED V2
+          IPA и Python из этого артефакта — одна приватная пара.
+          Загрузить на сервер: Telegram24_Server_HARDENED_PAIRED.py
+          Подписать и установить: Telegram-24-7-HARDENED-unsigned.ipa
+          После перезапуска сервера открой IPA для разблокировки зашифрованной Telegram-сессии.
+          API ID/HASH и номер сохраняются в Keychain iPhone; код Telegram и 2FA не сохраняются.
+          Команды подписываются P-256 ключом iPhone; сервер отклоняет подмену устройства.
+          TXT
+
+      - name: Upload private hardened pair
+        uses: actions/upload-artifact@v4
+        with:
+          name: Telegram-24-7-HARDENED-secure-pair
+          path: |
+            Telegram-24-7-HARDENED-unsigned.ipa
+            Telegram24_Server_HARDENED_PAIRED.py
+            HARDENED_README_RU.txt
+          if-no-files-found: error
+          retention-days: 30
