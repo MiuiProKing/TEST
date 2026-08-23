@@ -409,7 +409,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 self.renderCurrentMode(armSignal: false, origin: "режим выбран")
             }
         }
-        modeButton.setTitle("(currentMode.title)  ▾", for: .normal)
+        modeButton.setTitle("\(currentMode.title)  ▾", for: .normal)
         modeButton.menu = UIMenu(
             title: "15 режимов из присланных версий",
             options: .singleSelection,
@@ -514,12 +514,13 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         let liveColor: UIColor = newest.coefficient >= 10 ? .systemRed : .systemGreen
         liveLabel.textColor = liveColor
         liveLabel.backgroundColor = liveColor.withAlphaComponent(0.12)
-        status.text = "● LuckyJet LIVE • (rounds.count) раундов • авто (autoBotEnabled ? "ВКЛ" : "ВЫКЛ")"
+        let autoState = autoBotEnabled ? "ВКЛ" : "ВЫКЛ"
+        status.text = "● LuckyJet LIVE • \(rounds.count) раундов • авто \(autoState)"
         status.textColor = .systemGreen
 
         guard let previousID = lastProcessedRoundID else {
             lastProcessedRoundID = newest.id
-            recordEvent("LIVE подключён: (rounds.count) раундов")
+            recordEvent("LIVE подключён: \(rounds.count) раундов")
             if autoBotEnabled {
                 renderCurrentMode(armSignal: true, origin: "автостарт")
             } else {
@@ -602,7 +603,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         autoBotEnabled.toggle()
         UserDefaults.standard.set(autoBotEnabled, forKey: autoBotKey)
         updateAutoButton()
-        recordEvent("Автобот (autoBotEnabled ? "включён" : "выключен")")
+        recordEvent("Автобот \(autoBotEnabled ? "включён" : "выключен")")
         if autoBotEnabled && !latestRounds.isEmpty && pendingSignal == nil {
             renderCurrentMode(armSignal: true, origin: "автобот включён")
         } else {
@@ -640,7 +641,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 switch result {
                 case .success(let rounds):
                     self.latestRounds = rounds
-                    self.status.text = "● LIVE OK • получено (rounds.count) раундов"
+                    self.status.text = "● LIVE OK • получено \(rounds.count) раундов"
                     self.status.textColor = .systemGreen
                     let values = rounds.prefix(14).map { String(format: "%.2fx", $0.coefficient) }.joined(separator: " • ")
                     self.output.text = "✅ LuckyJet подключён\n✅ session-id принят сервером\n✅ Получено раундов: \(rounds.count)\n\nПоследние:\n\(values)\n\nRocket Queen не проверялась и не изменялась."
