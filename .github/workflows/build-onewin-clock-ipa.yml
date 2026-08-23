@@ -56,14 +56,14 @@ jobs:
           mkdir -p "$RUNNER_TEMP/Payload"
           cp -R "$APP_PATH" "$RUNNER_TEMP/Payload/"
           cd "$RUNNER_TEMP"
-          /usr/bin/zip -qry "$GITHUB_WORKSPACE/OneWinClock-unsigned.ipa" Payload
-          test -s "$GITHUB_WORKSPACE/OneWinClock-unsigned.ipa"
-          ls -lh "$GITHUB_WORKSPACE/OneWinClock-unsigned.ipa"
+          /usr/bin/zip -qry "$GITHUB_WORKSPACE/OneWinClock-AllPredictor-unsigned.ipa" Payload
+          test -s "$GITHUB_WORKSPACE/OneWinClock-AllPredictor-unsigned.ipa"
+          ls -lh "$GITHUB_WORKSPACE/OneWinClock-AllPredictor-unsigned.ipa"
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: OneWinClock-unsigned-IPA
-          path: OneWinClock-unsigned.ipa
+          name: OneWinClock-AllPredictor-unsigned-IPA
+          path: OneWinClock-AllPredictor-unsigned.ipa
           if-no-files-found: error
           retention-days: 30
