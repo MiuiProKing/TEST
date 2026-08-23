@@ -49,8 +49,9 @@ jobs:
                   if count < 1:
                       raise SystemExit(f'{old} not found in {path}')
                   text = text.replace(old, new)
-              if '__TG247_' in text:
-                  raise SystemExit(f'unresolved placeholder in {path}')
+              unresolved = [placeholder for placeholder in pairs if placeholder in text]
+              if unresolved:
+                  raise SystemExit(f'unresolved placeholders in {path}: {unresolved}')
               path.write_text(text, encoding='utf-8')
           Path('Telegram24_Server_PAIRED.py').write_text(
               Path('telegram247/Telegram24_Server.py').read_text(encoding='utf-8'), encoding='utf-8'
