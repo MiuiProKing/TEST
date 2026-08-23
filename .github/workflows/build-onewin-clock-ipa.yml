@@ -1,69 +1,34 @@
 name: Build OneWin Clock unsigned IPA
-
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - 'onewin-clock-ios/**'
-      - '.github/workflows/build-onewin-clock-ipa.yml'
   pull_request:
-    branches:
-      - main
-    paths:
-      - 'onewin-clock-ios/**'
-      - '.github/workflows/build-onewin-clock-ipa.yml'
-
+    branches: [main]
+    paths: ['onewin-clock-ios/**', '.github/workflows/build-onewin-clock-ipa.yml']
 permissions:
   contents: read
-
 jobs:
   build-ios:
     runs-on: macos-latest
     timeout-minutes: 20
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Show Xcode version
+      - uses: actions/checkout@v4
+      - name: Normalize and format Swift
         run: |
-          xcodebuild -version
-          xcodebuild -project onewin-clock-ios/OneWinClock.xcodeproj -list
-
+          sed -i '' 's/status.font=/status.font = /g; s/out.backgroundColor=/out.backgroundColor = /g; s/out.font=/out.font = /g' onewin-clock-ios/OneWinClock/ViewController.swift
+          xcrun swift-format format --in-place onewin-clock-ios/OneWinClock/ViewController.swift
       - name: Build unsigned iPhone app
         run: |
           set -euo pipefail
           BUILD_DIR="$RUNNER_TEMP/OneWinClockBuild"
-          xcodebuild \
-            -project onewin-clock-ios/OneWinClock.xcodeproj \
-            -scheme OneWinClock \
-            -configuration Release \
-            -sdk iphoneos \
-            -derivedDataPath "$BUILD_DIR" \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            build
-
+          xcodebuild -project onewin-clock-ios/OneWinClock.xcodeproj -scheme OneWinClock -configuration Release -sdk iphoneos -derivedDataPath "$BUILD_DIR" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
           APP_PATH="$BUILD_DIR/Build/Products/Release-iphoneos/OneWinClock.app"
           test -d "$APP_PATH"
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Info.plist"
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$APP_PATH/Info.plist"
-
-          rm -rf "$RUNNER_TEMP/Payload"
-          mkdir -p "$RUNNER_TEMP/Payload"
+          rm -rf "$RUNNER_TEMP/Payload" && mkdir -p "$RUNNER_TEMP/Payload"
           cp -R "$APP_PATH" "$RUNNER_TEMP/Payload/"
-          cd "$RUNNER_TEMP"
-          /usr/bin/zip -qry "$GITHUB_WORKSPACE/OneWinClock-unsigned.ipa" Payload
-          test -s "$GITHUB_WORKSPACE/OneWinClock-unsigned.ipa"
-          ls -lh "$GITHUB_WORKSPACE/OneWinClock-unsigned.ipa"
-
-      - name: Upload IPA
-        uses: actions/upload-artifact@v4
+          cd "$RUNNER_TEMP" && /usr/bin/zip -qry "$GITHUB_WORKSPACE/BABEL-V29-unsigned.ipa" Payload
+      - uses: actions/upload-artifact@v4
         with:
-          name: OneWinClock-unsigned-IPA
-          path: OneWinClock-unsigned.ipa
+          name: BABEL-V29-unsigned-IPA
+          path: BABEL-V29-unsigned.ipa
           if-no-files-found: error
           retention-days: 30
