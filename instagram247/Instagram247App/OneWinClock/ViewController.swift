@@ -53,6 +53,7 @@ private enum SecureStore {
 final class ViewController: UIViewController, UITextFieldDelegate {
     private let commandTopic = "ig247h-cmd-cd4f6a6f08fa8650818cb8846c4a949df59df473fa449904"
     private let eventTopic = "ig247h-evt-cfbd5eef08a5bfd00fee593e573b746a3380dbe5b1b7a1fe"
+    private let builtInPairSecret = "__IG247_AUTOPAIR_SECRET__"
     private let ntfyBase = "https://ntfy.sh"
 
     private let scrollView = UIScrollView()
@@ -60,7 +61,6 @@ final class ViewController: UIViewController, UITextFieldDelegate {
     private let statusDot = UIView()
     private let statusTitle = UILabel()
     private let statusDetail = UILabel()
-    private let pairCodeField = UITextField()
     private let usernameField = UITextField()
     private let passwordField = UITextField()
     private let codeField = UITextField()
@@ -188,22 +188,6 @@ final class ViewController: UIViewController, UITextFieldDelegate {
         statusCard.addArrangedSubview(statusDetail)
         contentStack.addArrangedSubview(statusCard)
 
-        let pairing = makeCard()
-        pairing.addArrangedSubview(sectionTitle("ПРИВЯЗКА СЕРВЕРА"))
-        configureField(pairCodeField, placeholder: "Код из логов Python-сервера", secure: true)
-        pairCodeField.textContentType = .oneTimeCode
-        pairCodeField.autocapitalizationType = .none
-        pairCodeField.autocorrectionType = .no
-        pairing.addArrangedSubview(pairCodeField)
-        let pairingHint = makeLabel(
-            "При первом запуске Python напечатает КОД ПРИВЯЗКИ. Вставь его сюда один раз — он сохранится только в Keychain iPhone.",
-            size: 11,
-            weight: .medium,
-            color: UIColor.white.withAlphaComponent(0.58)
-        )
-        pairing.addArrangedSubview(pairingHint)
-        contentStack.addArrangedSubview(pairing)
-
         let credentials = makeCard()
         credentials.addArrangedSubview(sectionTitle("ВХОД INSTAGRAM"))
         configureField(usernameField, placeholder: "Логин Instagram", secure: false)
@@ -218,7 +202,7 @@ final class ViewController: UIViewController, UITextFieldDelegate {
         credentials.addArrangedSubview(codeField)
         contentStack.addArrangedSubview(credentials)
 
-        configureButton(connectButton, title: "🔗 ПРИВЯЗАТЬ И РАЗБЛОКИРОВАТЬ", color: .systemPurple, selector: #selector(connectTapped))
+        configureButton(connectButton, title: "🔗 АВТОПОДКЛЮЧЕНИЕ СЕРВЕРА", color: .systemPurple, selector: #selector(connectTapped))
         configureButton(loginButton, title: "🔐 ВОЙТИ INSTAGRAM", color: UIColor(red: 0.95, green: 0.16, blue: 0.52, alpha: 1), selector: #selector(loginTapped))
         configureButton(codeButton, title: "📩 ОТПРАВИТЬ КОД 2FA", color: .systemIndigo, selector: #selector(codeTapped))
         contentStack.addArrangedSubview(connectButton)
@@ -335,9 +319,6 @@ final class ViewController: UIViewController, UITextFieldDelegate {
 
     private func loadSavedCredentials() {
         usernameField.text = UserDefaults.standard.string(forKey: "instagram247.username") ?? "vyacheslavvya"
-        if let data = SecureStore.read("pair_secret") {
-            pairCodeField.text = String(data: data, encoding: .utf8)
-        }
         if let data = SecureStore.read("instagram_password") {
             passwordField.text = String(data: data, encoding: .utf8)
         }
@@ -378,23 +359,14 @@ final class ViewController: UIViewController, UITextFieldDelegate {
         return value
     }
 
-    private func bridgeKey() throws -> SymmetricKey {
-        guard let data = SecureStore.read("pair_secret"),
-              let pairSecret = String(data: data, encoding: .utf8),
-              pairSecret.count >= 20 else {
-            throw NSError(
-                domain: "Instagram247",
-                code: 7,
-                userInfo: [NSLocalizedDescriptionKey: "Вставь код привязки из логов Python-сервера"]
-            )
-        }
-        let digest = SHA256.hash(data: Data(("bridge:" + pairSecret).utf8))
+    private func bridgeKey() -> SymmetricKey {
+        let digest = SHA256.hash(data: Data(("bridge:" + builtInPairSecret).utf8))
         return SymmetricKey(data: Data(digest))
     }
 
     private func seal(_ object: [String: Any]) throws -> String {
         let clear = try JSONSerialization.data(withJSONObject: object, options: [])
-        let box = try AES.GCM.seal(clear, using: try bridgeKey())
+        let box = try AES.GCM.seal(clear, using: bridgeKey())
         guard let combined = box.combined else { throw NSError(domain: "Instagram247", code: 4) }
         return combined.base64EncodedString()
     }
@@ -402,7 +374,7 @@ final class ViewController: UIViewController, UITextFieldDelegate {
     private func open(_ value: String) throws -> [String: Any] {
         guard let raw = Data(base64Encoded: value) else { throw NSError(domain: "Instagram247", code: 5) }
         let box = try AES.GCM.SealedBox(combined: raw)
-        let clear = try AES.GCM.open(box, using: try bridgeKey())
+        let clear = try AES.GCM.open(box, using: bridgeKey())
         guard let object = try JSONSerialization.jsonObject(with: clear) as? [String: Any] else {
             throw NSError(domain: "Instagram247", code: 6)
         }
@@ -446,19 +418,6 @@ final class ViewController: UIViewController, UITextFieldDelegate {
     }
 
     private func connectAndUnlock() {
-        let pairSecret = (pairCodeField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard pairSecret.count >= 20 else {
-            setStatus(
-                title: "НУЖЕН КОД ПРИВЯЗКИ",
-                detail: "Скопируй код из первых строк лога Python-сервера и вставь в поле выше.",
-                color: .systemOrange
-            )
-            return
-        }
-        guard SecureStore.save(Data(pairSecret.utf8), account: "pair_secret") else {
-            showLocalError("Не удалось сохранить код привязки в Keychain")
-            return
-        }
         do {
             let key = try signingKey()
             sendCommand("pair", fields: ["public_key": key.publicKey.x963Representation.base64EncodedString()])
@@ -470,7 +429,7 @@ final class ViewController: UIViewController, UITextFieldDelegate {
                     self.showLocalError(error.localizedDescription)
                 }
             }
-            setStatus(title: "СЕРВЕР: ПРИВЯЗКА…", detail: "Отправляю ключ iPhone и разблокировку vault.", color: .systemOrange)
+            setStatus(title: "СЕРВЕР: АВТОПОДКЛЮЧЕНИЕ…", detail: "Код из логов не нужен. Привязываю iPhone и разблокирую vault.", color: .systemOrange)
         } catch {
             showLocalError(error.localizedDescription)
         }

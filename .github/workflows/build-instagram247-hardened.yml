@@ -1,4 +1,4 @@
-name: Build Instagram 24-7 Hardened IPA
+name: Build Instagram 24-7 AUTOPAIR
 
 on:
   workflow_dispatch:
@@ -17,9 +17,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate Python server
+      - name: Generate private AUTOPAIR key
         run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import secrets
+
+          marker = "__IG247_AUTOPAIR_SECRET__"
+          secret = secrets.token_hex(32)
+          paths = [
+              Path("instagram247/Instagram24_Server_HARDENED_PAIRED.py"),
+              Path("instagram247/Instagram247App/OneWinClock/ViewController.swift"),
+          ]
+          for path in paths:
+              text = path.read_text(encoding="utf-8")
+              if text.count(marker) != 1:
+                  raise RuntimeError(f"Unexpected AUTOPAIR marker count in {path}")
+              path.write_text(text.replace(marker, secret), encoding="utf-8")
+          PY
           python3 -m py_compile instagram247/Instagram24_Server_HARDENED_PAIRED.py
+          if grep -R -n "__IG247_AUTOPAIR_SECRET__" instagram247; then
+            echo "AUTOPAIR marker was not replaced"
+            exit 1
+          fi
 
       - name: Build unsigned iPhone app
         run: |
@@ -42,9 +63,11 @@ jobs:
           test -d "$APP"
           mkdir -p "$RUNNER_TEMP/package/Payload" dist
           cp -R "$APP" "$RUNNER_TEMP/package/Payload/Instagram247.app"
+          cp instagram247/Instagram24_Server_HARDENED_PAIRED.py dist/Instagram24_Server_AUTOPAIR.py
+          cp instagram247/Instagram24_HARDENED_README_RU.txt dist/Instagram24_AUTOPAIR_README_RU.txt
           (
             cd "$RUNNER_TEMP/package"
-            /usr/bin/zip -qry "$GITHUB_WORKSPACE/dist/Instagram-24-7-HARDENED-unsigned.ipa" Payload
+            /usr/bin/zip -qry "$GITHUB_WORKSPACE/dist/Instagram-24-7-AUTOPAIR-unsigned.ipa" Payload
           )
           /usr/bin/plutil -p "$APP/Info.plist"
           /usr/bin/file "$APP/OneWinClock"
@@ -52,15 +75,15 @@ jobs:
             echo "Expected an unsigned app, but a signature was found"
             exit 1
           fi
-          unzip -t dist/Instagram-24-7-HARDENED-unsigned.ipa
+          unzip -t dist/Instagram-24-7-AUTOPAIR-unsigned.ipa
 
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: Instagram-24-7-HARDENED
+          name: Instagram-24-7-AUTOPAIR
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 1
           path: |
-            dist/Instagram-24-7-HARDENED-unsigned.ipa
-            instagram247/Instagram24_Server_HARDENED_PAIRED.py
-            instagram247/Instagram24_HARDENED_README_RU.txt
+            dist/Instagram-24-7-AUTOPAIR-unsigned.ipa
+            dist/Instagram24_Server_AUTOPAIR.py
+            dist/Instagram24_AUTOPAIR_README_RU.txt

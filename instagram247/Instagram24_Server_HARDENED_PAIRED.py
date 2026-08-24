@@ -5,7 +5,7 @@
 Модель защиты:
 - пароль Instagram и private API session отсутствуют в исходном файле;
 - команды AES-GCM зашифрованы и подписаны P-256 ключом iPhone;
-- ключ AES-GCM создаётся сервером при первом запуске и вводится в IPA один раз;
+- приватный ключ AES-GCM автоматически встроен только в парные IPA и Python;
 - сервер закрепляет первый публичный ключ и отклоняет подмену устройства;
 - request_id, timestamp и replay-cache блокируют повтор старых команд;
 - логин, пароль и instagrapi settings хранятся на диске только в AES-GCM;
@@ -25,7 +25,6 @@ import importlib
 import json
 import os
 import random
-import secrets
 import subprocess
 import sys
 import threading
@@ -36,13 +35,16 @@ from pathlib import Path
 
 CMD_TOPIC = "ig247h-cmd-cd4f6a6f08fa8650818cb8846c4a949df59df473fa449904"
 EVT_TOPIC = "ig247h-evt-cfbd5eef08a5bfd00fee593e573b746a3380dbe5b1b7a1fe"
+PAIR_SECRET = "__IG247_AUTOPAIR_SECRET__"
+
+if PAIR_SECRET.startswith("__IG247_"):
+    raise RuntimeError("Это исходный шаблон. Используй собранный файл Instagram24_Server_AUTOPAIR.py")
 
 NTFY_BASE = os.getenv("IG247_NTFY_BASE", "https://ntfy.sh").rstrip("/")
 SESSION_FILE = Path(os.getenv("IG247_SESSION_FILE", "instagram247_session.enc"))
 DEVICE_FILE = Path(os.getenv("IG247_DEVICE_FILE", "instagram247_device.json"))
 SETTINGS_FILE = Path(os.getenv("IG247_SETTINGS_FILE", "instagram247_settings.json"))
 SEEN_FILE = Path(os.getenv("IG247_SEEN_FILE", "instagram247_seen.json"))
-PAIR_SECRET_FILE = Path(os.getenv("IG247_PAIR_SECRET_FILE", "instagram247_pair_secret.txt"))
 PROXY = os.getenv("INSTAGRAM_PROXY", "").strip()
 
 PING_MIN_SECONDS = max(20, int(os.getenv("IG247_PING_MIN", "38")))
@@ -106,24 +108,6 @@ def secure_write(path: Path, text: str) -> None:
         pass
 
 
-def load_or_create_pair_secret() -> tuple[str, bool]:
-    configured = os.getenv("IG247_PAIR_SECRET", "").strip()
-    if configured:
-        if len(configured) < 20:
-            raise RuntimeError("IG247_PAIR_SECRET должен содержать минимум 20 символов")
-        return configured, False
-    try:
-        existing = PAIR_SECRET_FILE.read_text(encoding="utf-8").strip()
-        if len(existing) >= 20:
-            return existing, False
-    except Exception:
-        pass
-    created = secrets.token_urlsafe(24)
-    secure_write(PAIR_SECRET_FILE, created)
-    return created, True
-
-
-PAIR_SECRET, PAIR_SECRET_CREATED = load_or_create_pair_secret()
 BRIDGE_KEY = hashlib.sha256(("bridge:" + PAIR_SECRET).encode("utf-8")).digest()
 
 
@@ -683,11 +667,7 @@ def command_loop() -> None:
 
 def main() -> None:
     start_health_server()
-    if load_device() is None:
-        print("=" * 68, flush=True)
-        print("КОД ПРИВЯЗКИ ДЛЯ IPA:", PAIR_SECRET, flush=True)
-        print("Скопируй этот код в поле «Код привязки» приложения.", flush=True)
-        print("=" * 68, flush=True)
+    print("Instagram 24/7 AUTOPAIR: код из логов не требуется", flush=True)
     if SESSION_FILE.exists():
         emit("startup", "🔒 Сервер запущен. Открой IPA для разблокировки зашифрованной Instagram-сессии.", state="connected")
     else:
