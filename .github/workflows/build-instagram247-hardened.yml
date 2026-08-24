@@ -1,0 +1,66 @@
+name: Build Instagram 24-7 Hardened IPA
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "instagram247/**"
+      - ".github/workflows/build-instagram247-hardened.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Python server
+        run: |
+          python3 -m py_compile instagram247/Instagram24_Server_HARDENED_PAIRED.py
+
+      - name: Build unsigned iPhone app
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project instagram247/Instagram247App/OneWinClock.xcodeproj \
+            -scheme OneWinClock \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath "$RUNNER_TEMP/Instagram247Derived" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            clean build
+
+      - name: Package and verify unsigned IPA
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/Instagram247Derived/Build/Products/Release-iphoneos/OneWinClock.app"
+          test -d "$APP"
+          mkdir -p "$RUNNER_TEMP/package/Payload" dist
+          cp -R "$APP" "$RUNNER_TEMP/package/Payload/Instagram247.app"
+          (
+            cd "$RUNNER_TEMP/package"
+            /usr/bin/zip -qry "$GITHUB_WORKSPACE/dist/Instagram-24-7-HARDENED-unsigned.ipa" Payload
+          )
+          /usr/bin/plutil -p "$APP/Info.plist"
+          /usr/bin/file "$APP/OneWinClock"
+          if /usr/bin/codesign -d "$APP" >/dev/null 2>&1; then
+            echo "Expected an unsigned app, but a signature was found"
+            exit 1
+          fi
+          unzip -t dist/Instagram-24-7-HARDENED-unsigned.ipa
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Instagram-24-7-HARDENED
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            dist/Instagram-24-7-HARDENED-unsigned.ipa
+            instagram247/Instagram24_Server_HARDENED_PAIRED.py
+            instagram247/Instagram24_HARDENED_README_RU.txt
