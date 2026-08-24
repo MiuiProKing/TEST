@@ -9,6 +9,9 @@
 /* Begin PBXBuildFile section */
 		A10000000000000000000001 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* AppDelegate.swift */; };
 		A10000000000000000000002 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* ViewController.swift */; };
+		A10000000000000000000003 /* IMG_2389.jpeg in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* IMG_2389.jpeg */; };
+		A10000000000000000000004 /* KIBORG.py in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* KIBORG.py */; };
+		A10000000000000000000005 /* V0xFF3(1).py in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* V0xFF3(1).py */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -16,6 +19,9 @@
 		A20000000000000000000002 /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
 		A20000000000000000000003 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A20000000000000000000004 /* OneWinClock.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OneWinClock.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000005 /* IMG_2389.jpeg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = IMG_2389.jpeg; sourceTree = "<group>"; };
+		A20000000000000000000006 /* KIBORG.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = KIBORG.py; sourceTree = "<group>"; };
+		A20000000000000000000007 /* V0xFF3(1).py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = "V0xFF3(1).py"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -43,6 +49,9 @@
 				A20000000000000000000001 /* AppDelegate.swift */,
 				A20000000000000000000002 /* ViewController.swift */,
 				A20000000000000000000003 /* Info.plist */,
+				A20000000000000000000005 /* IMG_2389.jpeg */,
+				A20000000000000000000006 /* KIBORG.py */,
+				A20000000000000000000007 /* V0xFF3(1).py */,
 			);
 			path = OneWinClock;
 			sourceTree = "<group>";
@@ -113,6 +122,9 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10000000000000000000003 /* IMG_2389.jpeg in Resources */,
+				A10000000000000000000004 /* KIBORG.py in Resources */,
+				A10000000000000000000005 /* V0xFF3(1).py in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

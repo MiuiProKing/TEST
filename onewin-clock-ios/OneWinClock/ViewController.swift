@@ -5,6 +5,7 @@ import AudioToolbox
 private struct RoundSample: Codable, Equatable {
     let id: String
     let coefficient: Double
+    let timestamp: Date?
 }
 
 private enum EngineMode: Int, CaseIterable {
@@ -23,6 +24,8 @@ private enum EngineMode: Int, CaseIterable {
     case killer
     case montante
     case watch
+    case kiborg
+    case v0xFF3
 
     var title: String {
         switch self {
@@ -41,6 +44,8 @@ private enum EngineMode: Int, CaseIterable {
         case .killer: return "🧪 KILLER MONITOR"
         case .montante: return "📶 MONTANTE MONITOR"
         case .watch: return "📊 WATCH / РЫНОК"
+        case .kiborg: return "🤖 KIBORG"
+        case .v0xFF3: return "🚨 V0xFF3"
         }
     }
 
@@ -61,6 +66,8 @@ private enum EngineMode: Int, CaseIterable {
         case .killer: return "killer"
         case .montante: return "montante"
         case .watch: return "watch"
+        case .kiborg: return "kiborg"
+        case .v0xFF3: return "v0xff3"
         }
     }
 }
@@ -224,6 +231,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         tabs.selectedSegmentIndex = (0...2).contains(savedTab) ? savedTab : 0
         applySelectedTab()
         renderWelcome()
+        showDeveloperSplash()
     }
 
     deinit {
@@ -465,10 +473,120 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         }
         modeButton.setTitle("\(currentMode.title)  ▾", for: .normal)
         modeButton.menu = UIMenu(
-            title: "15 режимов из присланных версий",
+            title: "17 режимов из присланных версий",
             options: .singleSelection,
             children: actions
         )
+    }
+
+    private func showDeveloperSplash() {
+        let overlay = UIView(frame: view.bounds)
+        overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        overlay.backgroundColor = .black
+        overlay.alpha = 0
+        overlay.accessibilityIdentifier = "developer-splash"
+        view.addSubview(overlay)
+
+        let glow = UIView()
+        glow.backgroundColor = UIColor(red: 0.27, green: 0.03, blue: 0.55, alpha: 0.55)
+        glow.layer.cornerRadius = 36
+        glow.layer.shadowColor = UIColor.systemPurple.cgColor
+        glow.layer.shadowOpacity = 1
+        glow.layer.shadowRadius = 34
+        glow.layer.shadowOffset = .zero
+        glow.translatesAutoresizingMaskIntoConstraints = false
+        overlay.addSubview(glow)
+
+        let avatar = UIImageView(image: UIImage(named: "IMG_2389.jpeg"))
+        avatar.contentMode = .scaleAspectFit
+        avatar.backgroundColor = .black
+        avatar.layer.cornerRadius = 28
+        avatar.layer.borderWidth = 2
+        avatar.layer.borderColor = UIColor.systemPurple.cgColor
+        avatar.clipsToBounds = true
+        avatar.translatesAutoresizingMaskIntoConstraints = false
+        glow.addSubview(avatar)
+
+        let developer = UILabel()
+        developer.text = "РАЗРАБОТЧИК"
+        developer.textAlignment = .center
+        developer.textColor = .white
+        developer.font = .systemFont(ofSize: 16, weight: .black)
+        developer.translatesAutoresizingMaskIntoConstraints = false
+        overlay.addSubview(developer)
+
+        let name = UILabel()
+        name.text = "@V0XFF3"
+        name.textAlignment = .center
+        name.textColor = UIColor(red: 0.60, green: 0.30, blue: 1.0, alpha: 1)
+        name.font = .monospacedSystemFont(ofSize: 30, weight: .heavy)
+        name.translatesAutoresizingMaskIntoConstraints = false
+        overlay.addSubview(name)
+
+        let loading = UILabel()
+        loading.text = "KIBORG + V0xFF3  •  ЗАГРУЗКА…"
+        loading.textAlignment = .center
+        loading.textColor = .systemCyan
+        loading.font = .monospacedSystemFont(ofSize: 13, weight: .bold)
+        loading.translatesAutoresizingMaskIntoConstraints = false
+        overlay.addSubview(loading)
+
+        NSLayoutConstraint.activate([
+            glow.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
+            glow.centerYAnchor.constraint(equalTo: overlay.centerYAnchor, constant: -55),
+            glow.leadingAnchor.constraint(greaterThanOrEqualTo: overlay.leadingAnchor, constant: 28),
+            glow.trailingAnchor.constraint(lessThanOrEqualTo: overlay.trailingAnchor, constant: -28),
+            glow.widthAnchor.constraint(equalTo: overlay.widthAnchor, multiplier: 0.84),
+            glow.widthAnchor.constraint(equalTo: glow.heightAnchor, multiplier: 0.92),
+
+            avatar.topAnchor.constraint(equalTo: glow.topAnchor),
+            avatar.leadingAnchor.constraint(equalTo: glow.leadingAnchor),
+            avatar.trailingAnchor.constraint(equalTo: glow.trailingAnchor),
+            avatar.bottomAnchor.constraint(equalTo: glow.bottomAnchor),
+
+            developer.topAnchor.constraint(equalTo: glow.bottomAnchor, constant: 24),
+            developer.leadingAnchor.constraint(equalTo: overlay.leadingAnchor, constant: 20),
+            developer.trailingAnchor.constraint(equalTo: overlay.trailingAnchor, constant: -20),
+
+            name.topAnchor.constraint(equalTo: developer.bottomAnchor, constant: 5),
+            name.leadingAnchor.constraint(equalTo: developer.leadingAnchor),
+            name.trailingAnchor.constraint(equalTo: developer.trailingAnchor),
+
+            loading.topAnchor.constraint(equalTo: name.bottomAnchor, constant: 20),
+            loading.leadingAnchor.constraint(equalTo: developer.leadingAnchor),
+            loading.trailingAnchor.constraint(equalTo: developer.trailingAnchor)
+        ])
+
+        glow.transform = CGAffineTransform(scaleX: 0.82, y: 0.82)
+        let pulse = CABasicAnimation(keyPath: "shadowRadius")
+        pulse.fromValue = 12
+        pulse.toValue = 38
+        pulse.duration = 0.75
+        pulse.autoreverses = true
+        pulse.repeatCount = 3
+        glow.layer.add(pulse, forKey: "developerGlow")
+
+        let breathe = CABasicAnimation(keyPath: "transform.scale")
+        breathe.fromValue = 0.98
+        breathe.toValue = 1.025
+        breathe.duration = 0.8
+        breathe.autoreverses = true
+        breathe.repeatCount = 3
+        avatar.layer.add(breathe, forKey: "developerAvatarPulse")
+
+        UIView.animate(withDuration: 0.42, delay: 0, options: [.curveEaseOut]) {
+            overlay.alpha = 1
+            glow.transform = .identity
+        }
+        UIView.animate(withDuration: 0.55, delay: 0.45, options: [.autoreverse, .repeat, .allowUserInteraction]) {
+            loading.alpha = 0.28
+        }
+        UIView.animate(withDuration: 0.45, delay: 3.1, options: [.curveEaseIn]) {
+            overlay.alpha = 0
+            glow.transform = CGAffineTransform(scaleX: 1.06, y: 1.06)
+        } completion: { _ in
+            overlay.removeFromSuperview()
+        }
     }
 
     private func makeWebView() -> WKWebView {
@@ -761,7 +879,9 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
 
         Подключаю историю LuckyJet и запускаю выбранный движок.
 
-        • 15 режимов из 9 присланных Python-версий
+        • 17 режимов из 11 присланных Python-версий
+        • KIBORG и V0xFF3 перенесены в нативные движки
+        • исходники KIBORG.py и V0xFF3(1).py сохранены внутри IPA
         • новый раунд определяется по уникальному ID
         • коэффициенты обновляются каждые 2.5 секунды
         • сигнал проверяется в следующих завершённых раундах
@@ -828,7 +948,11 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                     let identifier = Self.roundIdentifier(row, index: index, coefficient: value)
                     guard !seen.contains(identifier) else { continue }
                     seen.insert(identifier)
-                    rounds.append(RoundSample(id: identifier, coefficient: value))
+                    rounds.append(RoundSample(
+                        id: identifier,
+                        coefficient: value,
+                        timestamp: Self.dateValue(row)
+                    ))
                 }
 
                 guard !rounds.isEmpty else {
@@ -864,6 +988,21 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         if let number = value as? NSNumber { return number.doubleValue }
         if let string = value as? String {
             return Double(string.replacingOccurrences(of: ",", with: "."))
+        }
+        return nil
+    }
+
+    private static func dateValue(_ row: [String: Any]) -> Date? {
+        for key in ["createdAt", "created_at", "timestamp", "time", "endedAt", "ended_at"] {
+            guard let raw = row[key] else { continue }
+            if let number = num(raw) {
+                let seconds = number > 10_000_000_000 ? number / 1000 : number
+                return Date(timeIntervalSince1970: seconds)
+            }
+            if let string = raw as? String {
+                let formatter = ISO8601DateFormatter()
+                if let date = formatter.date(from: string) { return date }
+            }
         }
         return nil
     }
@@ -1014,6 +1153,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         case .killer: return unavailableForecast(mode, reason: "В присланной версии функция KILLER намеренно отключена: подтверждённой формулы нет.")
         case .montante: return unavailableForecast(mode, reason: "В присланных версиях MONTANTE указан как отдельный бот, но его формула отсутствует.")
         case .watch: return watchForecast(values)
+        case .kiborg: return kiborgForecast(values)
+        case .v0xFF3: return v0xFF3Forecast(values)
         }
     }
 
@@ -1362,6 +1503,127 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         let insurance: Double = target >= 30 ? 5 : 3
         let wait = Double(intervals.gap) >= typical ? 0 : (Double(intervals.gap) >= max(0, typical - 2) ? 1 : 2)
         return Forecast(mode: .bigTime, title: EngineMode.bigTime.title, target: target, insurance: insurance, confidence: confidence, waitRounds: wait, attempts: 3, ready: confidence >= 60, reason: String(format: "gap10 %d • typical %.1f • proximity %.2f • pressure %.2f • time %.2f", intervals.gap, typical, proximity, pressure, time), detail: "HEURE DE GROSSE CÔTE: история 10x+ и BABEL time-grid; диапазон наблюдения 10x–100x.")
+    }
+
+    private func kiborgForecast(_ values: [Double]) -> Forecast {
+        guard values.count >= 30 else {
+            return waitingForecast(.kiborg, reason: "KIBORG собирает минимум 30 завершённых раундов")
+        }
+
+        // KIBORG.py объединяет несколько BABEL/ALLPREDICTOR анализаторов.
+        // В приложении каждый кандидат считается отдельно, затем KIBORG выбирает
+        // сильнейший готовый сигнал без случайных PUBLIC_RANDOM модулей.
+        let candidates = [
+            allPredictorForecast(values),
+            petitForecast(values),
+            grandForecast(values),
+            twoTimeForecast(values),
+            aiProForecast(values),
+            pro4Forecast(values),
+            pro4RangeForecast(values),
+            bigTimeForecast(values)
+        ].filter { $0.target != nil }
+
+        guard !candidates.isEmpty else {
+            return waitingForecast(.kiborg, reason: "KIBORG ожидает подтверждённый кандидат от объединённых движков")
+        }
+
+        let readyCandidates = candidates.filter(\.ready)
+        let pool = readyCandidates.isEmpty ? candidates : readyCandidates
+        let selected = pool.max { lhs, rhs in
+            kiborgScore(lhs) < kiborgScore(rhs)
+        } ?? candidates[0]
+        let selectedTarget = selected.target ?? 1.5
+        let consensus = candidates.filter { candidate in
+            guard let target = candidate.target else { return false }
+            let ratio = max(target, selectedTarget) / max(min(target, selectedTarget), 1)
+            return ratio <= 1.65
+        }.count
+        let confidence = Int(round(clamp(
+            Double(selected.confidence) + Double(max(0, consensus - 1)) * 1.5,
+            35,
+            95
+        )))
+
+        return Forecast(
+            mode: .kiborg,
+            title: "🤖 KIBORG → \(selected.title)",
+            target: selected.target,
+            insurance: selected.insurance,
+            confidence: confidence,
+            waitRounds: selected.waitRounds,
+            attempts: selected.attempts,
+            ready: selected.ready,
+            reason: "выбран \(selected.mode.title) • согласованы \(consensus)/\(candidates.count) • \(selected.reason)",
+            detail: "Нативный порт KIBORG.py: объединены BABEL, ALLPREDICTOR, PETIT/GRAND, PRO4, AI PRO и 10X–100X. Случайные модули исключены."
+        )
+    }
+
+    private func kiborgScore(_ forecast: Forecast) -> Double {
+        let targetBonus = log10(max(forecast.target ?? 1, 1)) * 7
+        let readyBonus = forecast.ready ? 8.0 : 0.0
+        return Double(forecast.confidence) + targetBonus + readyBonus - Double(forecast.waitRounds) * 4
+    }
+
+    private func v0xFF3Forecast(_ values: [Double]) -> Forecast {
+        guard values.count >= 40 else {
+            return waitingForecast(.v0xFF3, reason: "V0xFF3 собирает минимум 40 завершённых раундов")
+        }
+
+        let chronological = Array(values.prefix(500).reversed())
+        let tiers: [(threshold: Double, label: String)] = [
+            (140, "140X"),
+            (100, "100X"),
+            (30, "30X")
+        ]
+
+        var selectedLabel = ""
+        var selectedIntervals: [Double] = []
+        var currentGap = 0
+        for tier in tiers {
+            let indices = chronological.indices.filter { chronological[$0] >= tier.threshold }
+            guard indices.count >= 4 else { continue }
+            let intervals = zip(indices, indices.dropFirst()).map { Double($0.1 - $0.0) }
+            guard intervals.count >= 3 else { continue }
+            selectedLabel = tier.label
+            selectedIntervals = Array(intervals.suffix(20))
+            currentGap = chronological.count - 1 - (indices.last ?? chronological.count - 1)
+            break
+        }
+
+        guard !selectedIntervals.isEmpty else {
+            return waitingForecast(.v0xFF3, reason: "Нужно накопить минимум 4 события 30X+, 100X+ или 140X+")
+        }
+
+        let typical = max(1, median(selectedIntervals))
+        let deviations = selectedIntervals.map { abs($0 - typical) }
+        let spread = clamp(median(deviations) * 1.5, 2, 8)
+        var nextCenter = typical
+        if Double(currentGap) > typical + spread {
+            nextCenter = ceil(Double(currentGap) / typical) * typical
+        }
+        let windowStart = max(0, nextCenter - spread)
+        let roundsUntilCenter = max(0, Int(round(nextCenter - Double(currentGap))))
+        let ready = Double(currentGap) >= windowStart
+        let attempts = Int(clamp(round(spread * 2), 3, 8))
+
+        let madRatio = median(deviations) / max(typical, 1)
+        let regularity = clamp(1 - madRatio, 0, 1)
+        let sample = min(1, Double(selectedIntervals.count) / 20)
+        let confidence = Int(round(clamp(35 + 35 * regularity + 20 * sample, 35, 90)))
+
+        return Forecast(
+            mode: .v0xFF3,
+            title: "🚨 V0xFF3 • CÔTE 140X",
+            target: 140,
+            insurance: 30,
+            confidence: confidence,
+            waitRounds: ready ? min(roundsUntilCenter, 4) : roundsUntilCenter,
+            attempts: attempts,
+            ready: ready,
+            reason: String(format: "%@ intervals • median %.1f раундов • прошло %d • окно ±%.1f", selectedLabel, typical, currentGap, spread),
+            detail: "Нативный порт V0xFF3(1).py: главная цель 140X, ASSURANCE 30X и резервное окно по устойчивым интервалам."
+        )
     }
 
     private func watchForecast(_ values: [Double]) -> Forecast {
