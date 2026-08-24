@@ -1,5 +1,6 @@
 import UIKit
 import WebKit
+import AudioToolbox
 
 private struct RoundSample: Codable, Equatable {
     let id: String
@@ -166,6 +167,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private let autoBotKey = "onewinclock.autoBot.v3"
     private let statsKey = "onewinclock.botStats.v3"
     private let roundCacheKey = "onewinclock.roundCache.v3"
+    private let soundKey = "onewinclock.signalSound.v3"
 
     private let processPool = WKProcessPool()
     private let tabs = UISegmentedControl(items: ["BABEL", "ПРОГНОЗЫ", "1WIN"])
@@ -174,6 +176,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private let output = UITextView()
     private let signalButton = UIButton(type: .system)
     private let autoButton = UIButton(type: .system)
+    private let soundButton = UIButton(type: .system)
     private let checkButton = UIButton(type: .system)
     private let resetButton = UIButton(type: .system)
     private let clockLabel = UILabel()
@@ -187,6 +190,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private var gameWebView: WKWebView!
     private var currentMode: EngineMode = .fusion
     private var autoBotEnabled = true
+    private var soundEnabled = true
     private var clockTimer: Timer?
     private var liveTimer: Timer?
     private var liveRequestInFlight = false
@@ -237,6 +241,9 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         if UserDefaults.standard.object(forKey: autoBotKey) != nil {
             autoBotEnabled = UserDefaults.standard.bool(forKey: autoBotKey)
         }
+        if UserDefaults.standard.object(forKey: soundKey) != nil {
+            soundEnabled = UserDefaults.standard.bool(forKey: soundKey)
+        }
         if let data = UserDefaults.standard.data(forKey: statsKey),
            let saved = try? JSONDecoder().decode([String: BotStats].self, from: data) {
             botStats = saved
@@ -276,40 +283,60 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         view.addSubview(topBar)
 
         clockLabel.textColor = .white
-        clockLabel.font = .monospacedDigitSystemFont(ofSize: 17, weight: .bold)
+        clockLabel.font = .monospacedDigitSystemFont(ofSize: 18, weight: .heavy)
         clockLabel.setContentHuggingPriority(.required, for: .horizontal)
 
         liveLabel.text = "LIVE —"
         liveLabel.textAlignment = .center
-        liveLabel.textColor = .systemGreen
-        liveLabel.font = .monospacedDigitSystemFont(ofSize: 13, weight: .bold)
-        liveLabel.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.12)
-        liveLabel.layer.borderColor = UIColor.systemGreen.withAlphaComponent(0.42).cgColor
-        liveLabel.layer.borderWidth = 1
+        liveLabel.textColor = .black
+        liveLabel.font = .monospacedDigitSystemFont(ofSize: 14, weight: .heavy)
+        liveLabel.backgroundColor = UIColor(red: 0.72, green: 1.0, blue: 0.18, alpha: 1)
+        liveLabel.layer.borderColor = UIColor.white.cgColor
+        liveLabel.layer.borderWidth = 2
         liveLabel.layer.cornerRadius = 9
         liveLabel.clipsToBounds = true
         liveLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
         backButton.setTitle("‹", for: .normal)
+        backButton.setTitleColor(.black, for: .normal)
+        backButton.backgroundColor = .white
+        backButton.layer.cornerRadius = 9
         backButton.titleLabel?.font = .systemFont(ofSize: 25, weight: .bold)
         backButton.addTarget(self, action: #selector(goBack), for: .touchUpInside)
         backButton.widthAnchor.constraint(equalToConstant: 34).isActive = true
 
         reloadButton.setTitle("↻", for: .normal)
+        reloadButton.setTitleColor(.black, for: .normal)
+        reloadButton.backgroundColor = .white
+        reloadButton.layer.cornerRadius = 9
         reloadButton.titleLabel?.font = .systemFont(ofSize: 21, weight: .bold)
         reloadButton.addTarget(self, action: #selector(reloadSelectedPage), for: .touchUpInside)
         reloadButton.widthAnchor.constraint(equalToConstant: 34).isActive = true
 
         tabs.selectedSegmentIndex = 0
+        tabs.backgroundColor = .white
+        tabs.selectedSegmentTintColor = UIColor(red: 1.0, green: 0.77, blue: 0.06, alpha: 1)
+        tabs.setTitleTextAttributes([
+            .foregroundColor: UIColor.black,
+            .font: UIFont.systemFont(ofSize: 14, weight: .heavy)
+        ], for: .normal)
+        tabs.setTitleTextAttributes([
+            .foregroundColor: UIColor.black,
+            .font: UIFont.systemFont(ofSize: 15, weight: .black)
+        ], for: .selected)
+        tabs.layer.borderWidth = 2
+        tabs.layer.borderColor = UIColor.white.cgColor
+        tabs.layer.cornerRadius = 11
+        tabs.clipsToBounds = true
         tabs.addTarget(self, action: #selector(tabChanged(_:)), for: .valueChanged)
         tabs.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(tabs)
 
-        modeButton.backgroundColor = UIColor(white: 0.09, alpha: 1)
-        modeButton.setTitleColor(.white, for: .normal)
-        modeButton.titleLabel?.font = .systemFont(ofSize: 14, weight: .bold)
-        modeButton.layer.borderWidth = 1
-        modeButton.layer.borderColor = UIColor.systemPurple.withAlphaComponent(0.65).cgColor
+        modeButton.backgroundColor = UIColor(red: 1.0, green: 0.83, blue: 0.10, alpha: 1)
+        modeButton.setTitleColor(.black, for: .normal)
+        modeButton.titleLabel?.font = .systemFont(ofSize: 15, weight: .black)
+        modeButton.layer.borderWidth = 2
+        modeButton.layer.borderColor = UIColor.white.cgColor
         modeButton.layer.cornerRadius = 11
         modeButton.showsMenuAsPrimaryAction = true
         modeButton.translatesAutoresizingMaskIntoConstraints = false
@@ -318,7 +345,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
 
         status.text = "● BABEL LIVE • подключение…"
         status.textColor = .systemOrange
-        status.font = .systemFont(ofSize: 12, weight: .semibold)
+        status.font = .systemFont(ofSize: 13, weight: .bold)
         status.numberOfLines = 1
         status.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(status)
@@ -333,21 +360,28 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         view.addSubview(signalButton)
 
         configureSmallButton(autoButton, title: "АВТО: ВКЛ", selector: #selector(toggleAutoBot))
+        configureSmallButton(soundButton, title: "🔊 ЗВУК", selector: #selector(toggleSound))
         configureSmallButton(checkButton, title: "API", selector: #selector(checkConnection))
         configureSmallButton(resetButton, title: "СБРОС", selector: #selector(resetStatistics))
         botActions.axis = .horizontal
         botActions.distribution = .fillEqually
-        botActions.spacing = 8
+        botActions.spacing = 5
         botActions.addArrangedSubview(autoButton)
+        botActions.addArrangedSubview(soundButton)
         botActions.addArrangedSubview(checkButton)
         botActions.addArrangedSubview(resetButton)
         botActions.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(botActions)
         updateAutoButton()
+        updateSoundButton()
+        checkButton.backgroundColor = .white
+        checkButton.setTitleColor(.black, for: .normal)
+        resetButton.backgroundColor = .systemOrange
+        resetButton.setTitleColor(.black, for: .normal)
 
         output.backgroundColor = UIColor(white: 0.055, alpha: 1)
         output.textColor = .white
-        output.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        output.font = .monospacedSystemFont(ofSize: 14, weight: .medium)
         output.isEditable = false
         output.isSelectable = true
         output.alwaysBounceVertical = true
@@ -366,17 +400,18 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             topBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 3),
             topBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             topBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-            topBar.heightAnchor.constraint(equalToConstant: 34),
-            liveLabel.heightAnchor.constraint(equalToConstant: 28),
+            topBar.heightAnchor.constraint(equalToConstant: 38),
+            liveLabel.heightAnchor.constraint(equalToConstant: 32),
 
             tabs.topAnchor.constraint(equalTo: topBar.bottomAnchor, constant: 5),
             tabs.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             tabs.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            tabs.heightAnchor.constraint(equalToConstant: 44),
 
             modeButton.topAnchor.constraint(equalTo: tabs.bottomAnchor, constant: 9),
             modeButton.leadingAnchor.constraint(equalTo: tabs.leadingAnchor),
             modeButton.trailingAnchor.constraint(equalTo: tabs.trailingAnchor),
-            modeButton.heightAnchor.constraint(equalToConstant: 42),
+            modeButton.heightAnchor.constraint(equalToConstant: 46),
 
             status.topAnchor.constraint(equalTo: modeButton.bottomAnchor, constant: 8),
             status.leadingAnchor.constraint(equalTo: tabs.leadingAnchor),
@@ -385,12 +420,12 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             signalButton.topAnchor.constraint(equalTo: status.bottomAnchor, constant: 8),
             signalButton.leadingAnchor.constraint(equalTo: tabs.leadingAnchor),
             signalButton.trailingAnchor.constraint(equalTo: tabs.trailingAnchor),
-            signalButton.heightAnchor.constraint(equalToConstant: 46),
+            signalButton.heightAnchor.constraint(equalToConstant: 48),
 
             botActions.topAnchor.constraint(equalTo: signalButton.bottomAnchor, constant: 7),
             botActions.leadingAnchor.constraint(equalTo: tabs.leadingAnchor),
             botActions.trailingAnchor.constraint(equalTo: tabs.trailingAnchor),
-            botActions.heightAnchor.constraint(equalToConstant: 36),
+            botActions.heightAnchor.constraint(equalToConstant: 40),
 
             output.topAnchor.constraint(equalTo: botActions.bottomAnchor, constant: 7),
             output.leadingAnchor.constraint(equalTo: tabs.leadingAnchor),
@@ -407,11 +442,11 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private func configureSmallButton(_ button: UIButton, title: String, selector: Selector) {
         button.setTitle(title, for: .normal)
         button.setTitleColor(.white, for: .normal)
-        button.titleLabel?.font = .systemFont(ofSize: 11, weight: .bold)
+        button.titleLabel?.font = .systemFont(ofSize: 10, weight: .black)
         button.backgroundColor = UIColor(white: 0.11, alpha: 1)
         button.layer.cornerRadius = 9
-        button.layer.borderWidth = 1
-        button.layer.borderColor = UIColor.white.withAlphaComponent(0.13).cgColor
+        button.layer.borderWidth = 2
+        button.layer.borderColor = UIColor.white.cgColor
         button.addTarget(self, action: selector, for: .touchUpInside)
     }
 
@@ -517,8 +552,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                     self.acceptLiveRounds(rounds)
                 case .failure:
                     self.liveLabel.text = "LIVE —"
-                    self.liveLabel.textColor = .systemOrange
-                    self.liveLabel.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.12)
+                    self.liveLabel.textColor = .black
+                    self.liveLabel.backgroundColor = .systemOrange
                     self.status.text = "● LuckyJet API • повтор подключения…"
                     self.status.textColor = .systemOrange
                 }
@@ -530,12 +565,13 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         guard let newest = fetched.first else { return }
         let rounds = mergeHistory(fetched)
         liveLabel.text = String(format: "LIVE %.2fx", newest.coefficient)
-        let liveColor: UIColor = newest.coefficient >= 10 ? .systemRed : .systemGreen
-        liveLabel.textColor = liveColor
-        liveLabel.backgroundColor = liveColor.withAlphaComponent(0.12)
+        liveLabel.textColor = .black
+        liveLabel.backgroundColor = newest.coefficient >= 10
+            ? UIColor(red: 1.0, green: 0.24, blue: 0.18, alpha: 1)
+            : UIColor(red: 0.72, green: 1.0, blue: 0.18, alpha: 1)
         let autoState = autoBotEnabled ? "ВКЛ" : "ВЫКЛ"
         status.text = "● LuckyJet LIVE • \(rounds.count) раундов • авто \(autoState)"
-        status.textColor = .systemGreen
+        status.textColor = .white
 
         guard let previousID = lastProcessedRoundID else {
             lastProcessedRoundID = newest.id
@@ -636,6 +672,43 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         autoButton.backgroundColor = autoBotEnabled ? .systemGreen : UIColor(white: 0.11, alpha: 1)
     }
 
+    @objc private func toggleSound() {
+        soundEnabled.toggle()
+        UserDefaults.standard.set(soundEnabled, forKey: soundKey)
+        updateSoundButton()
+        recordEvent("Звук сигнала \(soundEnabled ? "включён" : "выключен")")
+        if soundEnabled {
+            playSignalReadyAlert()
+        }
+        renderCurrentMode(armSignal: false, origin: "настройка звука")
+    }
+
+    private func updateSoundButton() {
+        soundButton.setTitle(soundEnabled ? "🔊 ВКЛ" : "🔇 ВЫКЛ", for: .normal)
+        soundButton.setTitleColor(soundEnabled ? .black : .white, for: .normal)
+        soundButton.backgroundColor = soundEnabled ? .systemCyan : UIColor(white: 0.11, alpha: 1)
+    }
+
+    private func playSignalReadyAlert() {
+        guard soundEnabled else { return }
+        let feedback = UINotificationFeedbackGenerator()
+        feedback.prepare()
+        feedback.notificationOccurred(.success)
+        AudioServicesPlaySystemSound(SystemSoundID(1007))
+
+        signalButton.setTitle("🚨 СИГНАЛ ГОТОВ", for: .normal)
+        signalButton.backgroundColor = .systemRed
+        signalButton.setTitleColor(.white, for: .normal)
+        UIView.animateKeyframes(withDuration: 0.72, delay: 0, options: [.allowUserInteraction]) {
+            UIView.addKeyframe(withRelativeStartTime: 0, relativeDuration: 0.34) {
+                self.signalButton.transform = CGAffineTransform(scaleX: 1.035, y: 1.035)
+            }
+            UIView.addKeyframe(withRelativeStartTime: 0.34, relativeDuration: 0.66) {
+                self.signalButton.transform = .identity
+            }
+        }
+    }
+
     @objc private func resetStatistics() {
         let alert = UIAlertController(title: "Сбросить статистику?", message: "Будут очищены победы, страховки и поражения всех режимов. LIVE-подключение не изменится.", preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
@@ -692,6 +765,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         • новый раунд определяется по уникальному ID
         • коэффициенты обновляются каждые 2.5 секунды
         • сигнал проверяется в следующих завершённых раундах
+        • при новом готовом сигнале звучит короткий звонок и вибрация
         • вкладки ПРОГНОЗЫ и 1WIN остаются загруженными
 
         KILLER и MONTANTE сохранены как мониторы: в исходниках для них нет опубликованной формулы, поэтому приложение не рисует выдуманные сигналы.
@@ -861,6 +935,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 maxObserved: 0
             )
             recordEvent(String(format: "%@ запущен: цель %.2fx", forecast.mode.title, target))
+            playSignalReadyAlert()
         }
         render(forecast, origin: origin)
     }
@@ -891,14 +966,20 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         if let pending = pendingSignal {
             lines.append("\n📡 АКТИВНЫЙ СИГНАЛ")
             lines.append(String(format: "%@ • цель %.2fx • ожидание %d • попыток %d", pending.mode.title, pending.target, pending.waitRemaining, pending.attemptsRemaining))
+            signalButton.setTitle("🚨 СИГНАЛ АКТИВЕН", for: .normal)
+            signalButton.backgroundColor = .systemRed
+            signalButton.setTitleColor(.white, for: .normal)
         } else {
             lines.append("\n📡 Активного сигнала нет")
+            signalButton.setTitle("🎯 СИГНАЛ СЕЙЧАС", for: .normal)
+            signalButton.backgroundColor = .systemGreen
+            signalButton.setTitleColor(.black, for: .normal)
         }
 
         let stats = botStats[currentMode.key] ?? BotStats()
         lines.append("\n📊 СТАТИСТИКА РЕЖИМА")
         lines.append("✅ \(stats.wins)  🛡 \(stats.insuranceWins)  ❌ \(stats.losses)  • \(stats.successRate)%")
-        lines.append("🤖 Автобот: \(autoBotEnabled ? "ВКЛ" : "ВЫКЛ") • источник: \(origin)")
+        lines.append("🤖 Автобот: \(autoBotEnabled ? "ВКЛ" : "ВЫКЛ") • звук: \(soundEnabled ? "ВКЛ" : "ВЫКЛ") • \(origin)")
 
         if !lastSettlement.isEmpty {
             lines.append("\n\(lastSettlement)")
@@ -913,7 +994,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         lines.append("\n⚠️ Статистическая модель, результат не гарантируется.")
         output.text = lines.joined(separator: "\n")
         status.text = "● LuckyJet LIVE • \(latestRounds.count) раундов • авто \(autoBotEnabled ? "ВКЛ" : "ВЫКЛ")"
-        status.textColor = .systemGreen
+        status.textColor = .white
     }
 
     private func evaluate(_ mode: EngineMode, values: [Double]) -> Forecast {
@@ -1449,8 +1530,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private func showWebError(_ error: Error, for webView: WKWebView) {
         guard webView === selectedWebView else { return }
         liveLabel.text = "СЕТЬ ⚠︎"
-        liveLabel.textColor = .systemOrange
-        liveLabel.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.12)
+        liveLabel.textColor = .black
+        liveLabel.backgroundColor = .systemOrange
     }
 
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
