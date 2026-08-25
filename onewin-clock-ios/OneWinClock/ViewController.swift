@@ -1,11 +1,113 @@
 import UIKit
 import WebKit
 import AudioToolbox
+import SQLite3
 
 private struct RoundSample: Codable, Equatable {
     let id: String
     let coefficient: Double
     let timestamp: Date?
+}
+
+private let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+
+private final class SQLiteRoundStore {
+    private var connection: OpaquePointer?
+    let path: String
+
+    init() {
+        let manager = FileManager.default
+        let directory = (try? manager.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )) ?? manager.temporaryDirectory
+        try? manager.createDirectory(at: directory, withIntermediateDirectories: true)
+        path = directory.appendingPathComponent("v0xff3-rounds.sqlite3").path
+
+        if sqlite3_open_v2(path, &connection, SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK {
+            sqlite3_exec(connection, "PRAGMA journal_mode=WAL", nil, nil, nil)
+            sqlite3_exec(connection, "PRAGMA synchronous=NORMAL", nil, nil, nil)
+            sqlite3_exec(connection, """
+                CREATE TABLE IF NOT EXISTS rounds (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    round_id TEXT NOT NULL UNIQUE,
+                    coefficient REAL NOT NULL,
+                    timestamp REAL
+                )
+                """, nil, nil, nil)
+            sqlite3_exec(connection, "CREATE INDEX IF NOT EXISTS idx_rounds_seq ON rounds(seq DESC)", nil, nil, nil)
+        } else {
+            connection = nil
+        }
+    }
+
+    deinit {
+        if let connection { sqlite3_close(connection) }
+    }
+
+    func upsert(_ rounds: [RoundSample]) {
+        guard let connection, !rounds.isEmpty else { return }
+        sqlite3_exec(connection, "BEGIN IMMEDIATE", nil, nil, nil)
+        var statement: OpaquePointer?
+        let sql = "INSERT OR IGNORE INTO rounds(round_id, coefficient, timestamp) VALUES(?,?,?)"
+        guard sqlite3_prepare_v2(connection, sql, -1, &statement, nil) == SQLITE_OK else {
+            sqlite3_exec(connection, "ROLLBACK", nil, nil, nil)
+            return
+        }
+        defer { sqlite3_finalize(statement) }
+        for round in rounds.reversed() {
+            sqlite3_reset(statement)
+            sqlite3_clear_bindings(statement)
+            sqlite3_bind_text(statement, 1, (round.id as NSString).utf8String, -1, sqliteTransient)
+            sqlite3_bind_double(statement, 2, round.coefficient)
+            if let timestamp = round.timestamp {
+                sqlite3_bind_double(statement, 3, timestamp.timeIntervalSince1970)
+            } else {
+                sqlite3_bind_null(statement, 3)
+            }
+            sqlite3_step(statement)
+        }
+        sqlite3_exec(connection, "COMMIT", nil, nil, nil)
+        sqlite3_exec(connection, """
+            DELETE FROM rounds WHERE seq IN (
+                SELECT seq FROM rounds ORDER BY seq DESC LIMIT -1 OFFSET 100000
+            )
+            """, nil, nil, nil)
+    }
+
+    func load(limit: Int = 5_000) -> [RoundSample] {
+        guard let connection else { return [] }
+        var statement: OpaquePointer?
+        let safeLimit = max(1, min(limit, 10_000))
+        guard sqlite3_prepare_v2(connection, "SELECT round_id, coefficient, timestamp FROM rounds ORDER BY seq DESC LIMIT ?", -1, &statement, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_int(statement, 1, Int32(safeLimit))
+        var rows: [RoundSample] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let rawID = sqlite3_column_text(statement, 0) else { continue }
+            let id = String(cString: rawID)
+            let coefficient = sqlite3_column_double(statement, 1)
+            let timestamp: Date? = sqlite3_column_type(statement, 2) == SQLITE_NULL
+                ? nil
+                : Date(timeIntervalSince1970: sqlite3_column_double(statement, 2))
+            rows.append(RoundSample(id: id, coefficient: coefficient, timestamp: timestamp))
+        }
+        return rows
+    }
+
+    func stats() -> (total: Int, x30: Int, x100: Int, x140: Int) {
+        guard let connection else { return (0, 0, 0, 0) }
+        func count(_ whereClause: String = "") -> Int {
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(connection, "SELECT COUNT(*) FROM rounds \(whereClause)", -1, &statement, nil) == SQLITE_OK else { return 0 }
+            defer { sqlite3_finalize(statement) }
+            guard sqlite3_step(statement) == SQLITE_ROW else { return 0 }
+            return Int(sqlite3_column_int64(statement, 0))
+        }
+        return (count(), count("WHERE coefficient>=30"), count("WHERE coefficient>=100"), count("WHERE coefficient>=140"))
+    }
 }
 
 private enum EngineMode: Int, CaseIterable {
@@ -165,9 +267,11 @@ private struct FusionCandidate {
 final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate {
     private let api = URL(string: "https://crash-gateway-grm-cr.100hp.app/history")!
     private let customerID = "077dee8d-c923-4c02-9bee-757573662e69"
-    private let sessionID = "783ee79a-dafc-479e-bf22-834336380cdf"
+    // Private value is inserted only into the unsigned IPA after the cloud build.
+    private let sessionID = "00000000-0000-4000-8000-000000000000"
     private let allPredictorURL = URL(string: "https://miuiproking.github.io/luckyjet-telegram-mini-app/index.html?v=20260823-3")!
     private let gameURL = URL(string: "https://1w-ftend.life/")!
+    private let v0xFF3URL = URL(string: "https://miuiproking.github.io/luckyjet-telegram-mini-app/v0xff3.html?v=20260825-4")!
 
     private let selectedTabKey = "onewinclock.selectedTab.v3"
     private let selectedModeKey = "onewinclock.selectedMode.v3"
@@ -177,7 +281,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private let soundKey = "onewinclock.signalSound.v3"
 
     private let processPool = WKProcessPool()
-    private let tabs = UISegmentedControl(items: ["BABEL", "ПРОГНОЗЫ", "1WIN"])
+    private let sqliteStore = SQLiteRoundStore()
+    private let tabs = UISegmentedControl(items: ["BABEL", "ПРОГНОЗЫ", "1WIN", "V0xFF3"])
     private let modeButton = UIButton(type: .system)
     private let status = UILabel()
     private let output = UITextView()
@@ -185,6 +290,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private let autoButton = UIButton(type: .system)
     private let soundButton = UIButton(type: .system)
     private let checkButton = UIButton(type: .system)
+    private let sqliteButton = UIButton(type: .system)
     private let resetButton = UIButton(type: .system)
     private let clockLabel = UILabel()
     private let liveLabel = UILabel()
@@ -195,6 +301,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
 
     private var allPredictorWebView: WKWebView!
     private var gameWebView: WKWebView!
+    private var v0xFF3WebView: WKWebView!
     private var currentMode: EngineMode = .fusion
     private var autoBotEnabled = true
     private var soundEnabled = true
@@ -228,7 +335,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         startTimers()
 
         let savedTab = UserDefaults.standard.integer(forKey: selectedTabKey)
-        tabs.selectedSegmentIndex = (0...2).contains(savedTab) ? savedTab : 0
+        tabs.selectedSegmentIndex = (0...3).contains(savedTab) ? savedTab : 0
         applySelectedTab()
         renderWelcome()
         showDeveloperSplash()
@@ -256,9 +363,12 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
            let saved = try? JSONDecoder().decode([String: BotStats].self, from: data) {
             botStats = saved
         }
-        if let data = UserDefaults.standard.data(forKey: roundCacheKey),
+        latestRounds = sqliteStore.load(limit: 5_000)
+        if latestRounds.isEmpty,
+           let data = UserDefaults.standard.data(forKey: roundCacheKey),
            let saved = try? JSONDecoder().decode([RoundSample].self, from: data) {
             latestRounds = Array(saved.prefix(500))
+            sqliteStore.upsert(latestRounds)
         }
     }
 
@@ -276,8 +386,14 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
 
     @discardableResult
     private func mergeHistory(_ fetched: [RoundSample]) -> [RoundSample] {
-        let fetchedIDs = Set(fetched.map(\.id))
-        latestRounds = Array((fetched + latestRounds.filter { !fetchedIDs.contains($0.id) }).prefix(500))
+        sqliteStore.upsert(fetched)
+        let stored = sqliteStore.load(limit: 5_000)
+        if stored.isEmpty {
+            let fetchedIDs = Set(fetched.map(\.id))
+            latestRounds = Array((fetched + latestRounds.filter { !fetchedIDs.contains($0.id) }).prefix(5_000))
+        } else {
+            latestRounds = stored
+        }
         saveRoundCache()
         return latestRounds
     }
@@ -326,11 +442,11 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         tabs.selectedSegmentTintColor = UIColor(red: 1.0, green: 0.77, blue: 0.06, alpha: 1)
         tabs.setTitleTextAttributes([
             .foregroundColor: UIColor.black,
-            .font: UIFont.systemFont(ofSize: 14, weight: .heavy)
+            .font: UIFont.systemFont(ofSize: 10, weight: .heavy)
         ], for: .normal)
         tabs.setTitleTextAttributes([
             .foregroundColor: UIColor.black,
-            .font: UIFont.systemFont(ofSize: 15, weight: .black)
+            .font: UIFont.systemFont(ofSize: 11, weight: .black)
         ], for: .selected)
         tabs.layer.borderWidth = 2
         tabs.layer.borderColor = UIColor.white.cgColor
@@ -370,6 +486,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         configureSmallButton(autoButton, title: "АВТО: ВКЛ", selector: #selector(toggleAutoBot))
         configureSmallButton(soundButton, title: "🔊 ЗВУК", selector: #selector(toggleSound))
         configureSmallButton(checkButton, title: "API", selector: #selector(checkConnection))
+        configureSmallButton(sqliteButton, title: "💾 SQLite", selector: #selector(showSQLiteStatus))
         configureSmallButton(resetButton, title: "СБРОС", selector: #selector(resetStatistics))
         botActions.axis = .horizontal
         botActions.distribution = .fillEqually
@@ -377,6 +494,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         botActions.addArrangedSubview(autoButton)
         botActions.addArrangedSubview(soundButton)
         botActions.addArrangedSubview(checkButton)
+        botActions.addArrangedSubview(sqliteButton)
         botActions.addArrangedSubview(resetButton)
         botActions.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(botActions)
@@ -384,6 +502,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         updateSoundButton()
         checkButton.backgroundColor = .white
         checkButton.setTitleColor(.black, for: .normal)
+        sqliteButton.backgroundColor = .systemPurple
+        sqliteButton.setTitleColor(.white, for: .normal)
         resetButton.backgroundColor = .systemOrange
         resetButton.setTitleColor(.black, for: .normal)
 
@@ -612,8 +732,9 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private func buildPersistentWebViews() {
         allPredictorWebView = makeWebView()
         gameWebView = makeWebView()
+        v0xFF3WebView = makeWebView()
 
-        for webView in [allPredictorWebView!, gameWebView!] {
+        for webView in [allPredictorWebView!, gameWebView!, v0xFF3WebView!] {
             webContainer.addSubview(webView)
             NSLayoutConstraint.activate([
                 webView.topAnchor.constraint(equalTo: webContainer.topAnchor),
@@ -623,9 +744,10 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             ])
         }
 
-        // Обе страницы загружаются один раз и остаются живыми при переключении вкладок.
+        // Все страницы загружаются один раз и остаются живыми при переключении вкладок.
         allPredictorWebView.load(URLRequest(url: allPredictorURL, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 30))
         gameWebView.load(URLRequest(url: gameURL, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 30))
+        v0xFF3WebView.load(URLRequest(url: v0xFF3URL, cachePolicy: .reloadRevalidatingCacheData, timeoutInterval: 30))
     }
 
     private func installLifecycleObservers() {
@@ -730,6 +852,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private func applySelectedTab() {
         let isBabel = tabs.selectedSegmentIndex == 0
         let isAllPredictor = tabs.selectedSegmentIndex == 1
+        let isGame = tabs.selectedSegmentIndex == 2
+        let isV0xFF3 = tabs.selectedSegmentIndex == 3
 
         modeButton.isHidden = !isBabel
         status.isHidden = !isBabel
@@ -745,13 +869,20 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         allPredictorWebView.isUserInteractionEnabled = isAllPredictor
         allPredictorWebView.accessibilityElementsHidden = !isAllPredictor
 
-        let isGame = tabs.selectedSegmentIndex == 2
         gameWebView.alpha = isGame ? 1 : 0.01
         gameWebView.isUserInteractionEnabled = isGame
         gameWebView.accessibilityElementsHidden = !isGame
 
+        v0xFF3WebView.alpha = isV0xFF3 ? 1 : 0.01
+        v0xFF3WebView.isUserInteractionEnabled = isV0xFF3
+        v0xFF3WebView.accessibilityElementsHidden = !isV0xFF3
+
         if isAllPredictor { webContainer.bringSubviewToFront(allPredictorWebView) }
         if isGame { webContainer.bringSubviewToFront(gameWebView) }
+        if isV0xFF3 {
+            webContainer.bringSubviewToFront(v0xFF3WebView)
+            syncV0xFF3History()
+        }
 
         backButton.isEnabled = !isBabel && (selectedWebView?.canGoBack ?? false)
         reloadButton.isEnabled = !isBabel
@@ -760,7 +891,58 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private var selectedWebView: WKWebView? {
         if tabs.selectedSegmentIndex == 1 { return allPredictorWebView }
         if tabs.selectedSegmentIndex == 2 { return gameWebView }
+        if tabs.selectedSegmentIndex == 3 { return v0xFF3WebView }
         return nil
+    }
+
+    private func syncV0xFF3History() {
+        guard v0xFF3WebView != nil else { return }
+        let now = Date().timeIntervalSince1970 * 1_000
+        let rows: [[String: Any]] = latestRounds.enumerated().map { index, round in
+            [
+                "id": round.id,
+                "coefficient": round.coefficient,
+                "ts": round.timestamp.map { $0.timeIntervalSince1970 * 1_000 } ?? (now - Double(index) * 12_000),
+                "estimated": round.timestamp == nil
+            ]
+        }
+        guard
+            let rowsData = try? JSONSerialization.data(withJSONObject: rows),
+            let rowsJSON = String(data: rowsData, encoding: .utf8),
+            let sessionData = try? JSONSerialization.data(withJSONObject: sessionID, options: .fragmentsAllowed),
+            let sessionJSON = String(data: sessionData, encoding: .utf8)
+        else { return }
+
+        let fingerprint = "\(rows.count):\(latestRounds.first?.id ?? "empty")"
+        guard
+            let fingerprintData = try? JSONSerialization.data(withJSONObject: fingerprint, options: .fragmentsAllowed),
+            let fingerprintJSON = String(data: fingerprintData, encoding: .utf8)
+        else { return }
+
+        let script = """
+        (() => {
+          const storeKey = 'v0xff3_browser_engine_v1';
+          const markerKey = 'v0xff3_native_sync_marker';
+          const incoming = \(rowsJSON);
+          localStorage.setItem('V0XFF3_LJ_SESSION_ID', \(sessionJSON));
+          let current = {rounds:[],signals:[],outcomes:[],wins:0,losses:0,auto:false,sound:true,lastFetch:0};
+          try {
+            const saved = JSON.parse(localStorage.getItem(storeKey) || 'null');
+            if (saved && typeof saved === 'object') current = Object.assign(current, saved);
+          } catch (_) {}
+          const map = new Map((Array.isArray(current.rounds) ? current.rounds : []).map(row => [String(row.id), row]));
+          incoming.forEach(row => map.set(String(row.id), row));
+          current.rounds = Array.from(map.values()).sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0)).slice(-5000);
+          localStorage.setItem(storeKey, JSON.stringify(current));
+          const fingerprint = \(fingerprintJSON);
+          if (sessionStorage.getItem(markerKey) !== fingerprint) {
+            sessionStorage.setItem(markerKey, fingerprint);
+            window.location.reload();
+          }
+          return current.rounds.length;
+        })();
+        """
+        v0xFF3WebView.evaluateJavaScript(script, completionHandler: nil)
     }
 
     @objc private func goBack() {
@@ -851,10 +1033,11 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 switch result {
                 case .success(let rounds):
                     let history = self.mergeHistory(rounds)
+                    let sqlite = self.sqliteStore.stats()
                     self.status.text = "● LIVE OK • API \(rounds.count), накоплено \(history.count)"
                     self.status.textColor = .systemGreen
                     let values = history.prefix(14).map { String(format: "%.2fx", $0.coefficient) }.joined(separator: " • ")
-                    self.output.text = "✅ LuckyJet подключён\n✅ session-id принят сервером\n✅ API вернул: \(rounds.count)\n✅ Накоплено в приложении: \(history.count)/500\n\nПоследние:\n\(values)\n\nRocket Queen не проверялась и не изменялась."
+                    self.output.text = "✅ LuckyJet подключён\n✅ session-id принят сервером\n✅ API вернул: \(rounds.count)\n✅ SQLite накоплено: \(sqlite.total)/100000\n\nПоследние:\n\(values)\n\nRocket Queen не проверялась и не изменялась."
                 case .failure(let error):
                     self.status.text = "● ошибка LuckyJet API"
                     self.status.textColor = .systemRed
@@ -862,6 +1045,28 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 }
             }
         }
+    }
+
+    @objc private func showSQLiteStatus() {
+        let stats = sqliteStore.stats()
+        status.text = "● SQLite LIVE • \(stats.total) раундов"
+        status.textColor = .systemPurple
+        let recent = latestRounds.prefix(12).map { String(format: "%.2fx", $0.coefficient) }.joined(separator: " • ")
+        output.text = """
+        💾 SQLite V0xFF3
+
+        ✅ База подключена автоматически
+        ✅ Всего сохранено: \(stats.total) раундов
+        🟢 30x и выше: \(stats.x30)
+        🟣 100x и выше: \(stats.x100)
+        🔴 140x и выше: \(stats.x140)
+        📦 Ёмкость: до 100000 раундов
+
+        Последние:
+        \(recent.isEmpty ? "пока ожидаем LIVE-данные" : recent)
+
+        Пока приложение активно, LuckyJet опрашивается каждые 2.5 секунды. История SQLite сохраняется между запусками и автоматически передаётся во вкладку V0xFF3.
+        """
     }
 
     @objc private func getSignal() {
@@ -886,7 +1091,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         • коэффициенты обновляются каждые 2.5 секунды
         • сигнал проверяется в следующих завершённых раундах
         • при новом готовом сигнале звучит короткий звонок и вибрация
-        • вкладки ПРОГНОЗЫ и 1WIN остаются загруженными
+        • вкладки ПРОГНОЗЫ, 1WIN и V0xFF3 остаются загруженными
+        • SQLite автоматически хранит до 100000 раундов между запусками
 
         KILLER и MONTANTE сохранены как мониторы: в исходниках для них нет опубликованной формулы, поэтому приложение не рисует выдуманные сигналы.
         """
@@ -1775,6 +1981,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         if webView === selectedWebView { backButton.isEnabled = webView.canGoBack }
+        if webView === v0xFF3WebView { syncV0xFF3History() }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
