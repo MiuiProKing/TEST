@@ -51,10 +51,8 @@ private enum SecureStore {
 }
 
 final class ViewController: UIViewController, UITextFieldDelegate {
-    private let commandTopic = "ig247h-cmd-cd4f6a6f08fa8650818cb8846c4a949df59df473fa449904"
-    private let eventTopic = "ig247h-evt-cfbd5eef08a5bfd00fee593e573b746a3380dbe5b1b7a1fe"
     private let builtInPairSecret = "__IG247_AUTOPAIR_SECRET__"
-    private let ntfyBase = "https://ntfy.sh"
+    private let relayEndpoint = "https://xlidiojdbozxikjloiaj.supabase.co/functions/v1/instagram247-bridge"
 
     private let scrollView = UIScrollView()
     private let contentStack = UIStackView()
@@ -76,6 +74,7 @@ final class ViewController: UIViewController, UITextFieldDelegate {
 
     private var pollTimer: Timer?
     private var polling = false
+    private var relayCursor: Int64 = 0
     private var seenEventIDs: [String] = []
     private var seenEventSet = Set<String>()
     private var gradientLayer: CAGradientLayer?
@@ -159,7 +158,7 @@ final class ViewController: UIViewController, UITextFieldDelegate {
         title.textAlignment = .center
         contentStack.addArrangedSubview(title)
 
-        let developer = makeLabel("HARDENED • @V0XFF3", size: 13, weight: .bold, color: .systemPurple)
+        let developer = makeLabel("SUPABASE RELAY • @V0XFF3", size: 13, weight: .bold, color: .systemPurple)
         developer.textAlignment = .center
         contentStack.addArrangedSubview(developer)
 
@@ -181,7 +180,7 @@ final class ViewController: UIViewController, UITextFieldDelegate {
         statusRow.addArrangedSubview(statusDot)
         statusRow.addArrangedSubview(statusTitle)
         statusCard.addArrangedSubview(statusRow)
-        statusDetail.text = "Открой приложение после каждого перезапуска хостинга."
+        statusDetail.text = "Защищённый релей готов. Открой приложение после перезапуска хостинга."
         statusDetail.textColor = UIColor.white.withAlphaComponent(0.72)
         statusDetail.font = .systemFont(ofSize: 12, weight: .medium)
         statusDetail.numberOfLines = 0
@@ -231,7 +230,7 @@ final class ViewController: UIViewController, UITextFieldDelegate {
         logView.isEditable = false
         logView.isSelectable = true
         logView.layer.cornerRadius = 12
-        logView.text = "Ожидаю сервер…\n\nПароль не попадает в Python-файл или GitHub. После входа он хранится на сервере только в зашифрованном vault."
+        logView.text = "Ожидаю сервер через Supabase Relay…\n\nПароль не попадает в Python-файл, Supabase или GitHub в открытом виде. После входа он хранится на сервере только в зашифрованном vault."
         logView.heightAnchor.constraint(greaterThanOrEqualToConstant: 210).isActive = true
         logCard.addArrangedSubview(logView)
         contentStack.addArrangedSubview(logCard)
@@ -364,6 +363,26 @@ final class ViewController: UIViewController, UITextFieldDelegate {
         return SymmetricKey(data: Data(digest))
     }
 
+    private func relayChannel() -> String {
+        SHA256.hash(data: Data(("supabase-relay:" + builtInPairSecret).utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    private func relayHeaders(method: String, direction: String, after: Int64, message: String) -> [String: String] {
+        let timestamp = String(Int64(Date().timeIntervalSince1970 * 1000))
+        let canonical = [method.uppercased(), direction, timestamp, String(after), message].joined(separator: "\n")
+        let key = SymmetricKey(data: Data(SHA256.hash(data: Data(("supabase-relay:" + builtInPairSecret).utf8))))
+        let signature = HMAC<SHA256>.authenticationCode(for: Data(canonical.utf8), using: key)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return [
+            "Content-Type": "application/json",
+            "x-ig247-ts": timestamp,
+            "x-ig247-signature": signature
+        ]
+    }
+
     private func seal(_ object: [String: Any]) throws -> String {
         let clear = try JSONSerialization.data(withJSONObject: object, options: [])
         let box = try AES.GCM.seal(clear, using: bridgeKey())
@@ -398,11 +417,18 @@ final class ViewController: UIViewController, UITextFieldDelegate {
                 "signature": signature.base64EncodedString()
             ]
             let encrypted = try seal(envelope)
-            guard let url = URL(string: "\(ntfyBase)/\(commandTopic)") else { return }
+            guard let url = URL(string: relayEndpoint) else { return }
+            let body: [String: Any] = [
+                "channel": relayChannel(),
+                "direction": "cmd",
+                "message": encrypted
+            ]
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
             request.timeoutInterval = 15
-            request.httpBody = Data(encrypted.utf8)
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            relayHeaders(method: "POST", direction: "cmd", after: 0, message: encrypted)
+                .forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
             URLSession.shared.dataTask(with: request) { [weak self] _, response, error in
                 DispatchQueue.main.async {
                     if let error {
@@ -438,29 +464,49 @@ final class ViewController: UIViewController, UITextFieldDelegate {
     private func startPolling() {
         pollEvents()
         pollTimer?.invalidate()
-        pollTimer = Timer.scheduledTimer(timeInterval: 4, target: self, selector: #selector(pollEvents), userInfo: nil, repeats: true)
+        pollTimer = Timer.scheduledTimer(timeInterval: 3, target: self, selector: #selector(pollEvents), userInfo: nil, repeats: true)
         if let pollTimer { RunLoop.main.add(pollTimer, forMode: .common) }
     }
 
     @objc private func pollEvents() {
         guard !polling else { return }
         polling = true
-        guard let url = URL(string: "\(ntfyBase)/\(eventTopic)/json?poll=1&since=30s") else {
+        let requestedAfter = relayCursor
+        guard var components = URLComponents(string: relayEndpoint) else {
             polling = false
             return
         }
+        components.queryItems = [
+            URLQueryItem(name: "channel", value: relayChannel()),
+            URLQueryItem(name: "direction", value: "evt"),
+            URLQueryItem(name: "after", value: String(requestedAfter))
+        ]
+        guard let url = components.url else { polling = false; return }
         var request = URLRequest(url: url)
         request.timeoutInterval = 15
-        URLSession.shared.dataTask(with: request) { [weak self] data, _, _ in
+        relayHeaders(method: "GET", direction: "evt", after: requestedAfter, message: "")
+            .forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async { self?.polling = false }
-            guard let self, let data, let text = String(data: data, encoding: .utf8) else { return }
-            for line in text.split(separator: "\n") {
-                guard let raw = line.data(using: .utf8),
-                      let event = try? JSONSerialization.jsonObject(with: raw) as? [String: Any],
-                      event["event"] as? String == "message",
-                      let message = event["message"] as? String else { continue }
-                let eventID = event["id"] as? String ?? UUID().uuidString
+            guard let self else { return }
+            if let error {
+                DispatchQueue.main.async { self.showLocalError("Релей недоступен: \(error.localizedDescription)") }
+                return
+            }
+            if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+                DispatchQueue.main.async { self.showLocalError("Релей HTTP \(http.statusCode)") }
+                return
+            }
+            guard let data,
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  root["ok"] as? Bool == true,
+                  let events = root["events"] as? [[String: Any]] else { return }
+            for event in events {
+                let eventIDValue = (event["id"] as? NSNumber)?.int64Value ?? 0
+                guard eventIDValue > 0, let message = event["message"] as? String else { continue }
                 DispatchQueue.main.async {
+                    self.relayCursor = max(self.relayCursor, eventIDValue)
+                    let eventID = "relay-\(eventIDValue)"
                     guard !self.seenEventSet.contains(eventID) else { return }
                     self.rememberEvent(eventID)
                     if let payload = try? self.open(message) { self.applyEvent(payload) }
@@ -479,6 +525,8 @@ final class ViewController: UIViewController, UITextFieldDelegate {
     }
 
     private func applyEvent(_ payload: [String: Any]) {
+        if let timestamp = payload["ts"] as? TimeInterval,
+           abs(Date().timeIntervalSince1970 - timestamp) > 600 { return }
         let text = payload["text"] as? String ?? "Ответ без текста"
         let state = payload["state"] as? String ?? "connected"
         let time = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)

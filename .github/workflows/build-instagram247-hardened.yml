@@ -1,4 +1,4 @@
-name: Build Instagram 24-7 AUTOPAIR
+name: Build Instagram 24-7 SUPABASE RELAY
 
 on:
   workflow_dispatch:
@@ -63,27 +63,39 @@ jobs:
           test -d "$APP"
           mkdir -p "$RUNNER_TEMP/package/Payload" dist
           cp -R "$APP" "$RUNNER_TEMP/package/Payload/Instagram247.app"
-          cp instagram247/Instagram24_Server_HARDENED_PAIRED.py dist/Instagram24_Server_AUTOPAIR.py
-          cp instagram247/Instagram24_HARDENED_README_RU.txt dist/Instagram24_AUTOPAIR_README_RU.txt
+          cp instagram247/Instagram24_Server_HARDENED_PAIRED.py dist/Instagram24_Server_SUPABASE_RELAY.py
+          cp instagram247/Instagram24_HARDENED_README_RU.txt dist/Instagram24_SUPABASE_RELAY_README_RU.txt
           (
             cd "$RUNNER_TEMP/package"
-            /usr/bin/zip -qry "$GITHUB_WORKSPACE/dist/Instagram-24-7-AUTOPAIR-unsigned.ipa" Payload
+            /usr/bin/zip -qry "$GITHUB_WORKSPACE/dist/Instagram-24-7-SUPABASE-RELAY-unsigned.ipa" Payload
           )
           /usr/bin/plutil -p "$APP/Info.plist"
           /usr/bin/file "$APP/OneWinClock"
+          PAIR_SECRET="$(python3 - <<'PY'
+          import re
+          from pathlib import Path
+          text = Path("dist/Instagram24_Server_SUPABASE_RELAY.py").read_text(encoding="utf-8")
+          print(re.search(r'^PAIR_SECRET = "([0-9a-f]{64})"$', text, re.M).group(1))
+          PY
+          )"
+          /usr/bin/strings "$APP/OneWinClock" | /usr/bin/grep -F -q "$PAIR_SECRET"
+          if /usr/bin/grep -q "ntfy.sh" instagram247/Instagram247App/OneWinClock/ViewController.swift instagram247/Instagram24_Server_HARDENED_PAIRED.py; then
+            echo "Legacy ntfy transport is still present"
+            exit 1
+          fi
           if /usr/bin/codesign -d "$APP" >/dev/null 2>&1; then
             echo "Expected an unsigned app, but a signature was found"
             exit 1
           fi
-          unzip -t dist/Instagram-24-7-AUTOPAIR-unsigned.ipa
+          unzip -t dist/Instagram-24-7-SUPABASE-RELAY-unsigned.ipa
 
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: Instagram-24-7-AUTOPAIR
+          name: Instagram-24-7-SUPABASE-RELAY
           if-no-files-found: error
           retention-days: 1
           path: |
-            dist/Instagram-24-7-AUTOPAIR-unsigned.ipa
-            dist/Instagram24_Server_AUTOPAIR.py
-            dist/Instagram24_AUTOPAIR_README_RU.txt
+            dist/Instagram-24-7-SUPABASE-RELAY-unsigned.ipa
+            dist/Instagram24_Server_SUPABASE_RELAY.py
+            dist/Instagram24_SUPABASE_RELAY_README_RU.txt

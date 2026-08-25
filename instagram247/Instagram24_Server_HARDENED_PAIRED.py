@@ -21,26 +21,31 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import importlib
 import json
 import os
+import platform
 import random
 import subprocess
 import sys
 import threading
 import time
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 
-CMD_TOPIC = "ig247h-cmd-cd4f6a6f08fa8650818cb8846c4a949df59df473fa449904"
-EVT_TOPIC = "ig247h-evt-cfbd5eef08a5bfd00fee593e573b746a3380dbe5b1b7a1fe"
 PAIR_SECRET = "__IG247_AUTOPAIR_SECRET__"
 
 if PAIR_SECRET.startswith("__IG247_"):
     raise RuntimeError("Это исходный шаблон. Используй собранный файл Instagram24_Server_AUTOPAIR.py")
 
-NTFY_BASE = os.getenv("IG247_NTFY_BASE", "https://ntfy.sh").rstrip("/")
+RELAY_URL = os.getenv(
+    "IG247_RELAY_URL",
+    "https://xlidiojdbozxikjloiaj.supabase.co/functions/v1/instagram247-bridge",
+).rstrip("/")
+RELAY_CHANNEL = hashlib.sha256(("supabase-relay:" + PAIR_SECRET).encode("utf-8")).hexdigest()
 SESSION_FILE = Path(os.getenv("IG247_SESSION_FILE", "instagram247_session.enc"))
 DEVICE_FILE = Path(os.getenv("IG247_DEVICE_FILE", "instagram247_device.json"))
 SETTINGS_FILE = Path(os.getenv("IG247_SETTINGS_FILE", "instagram247_settings.json"))
@@ -50,14 +55,85 @@ PROXY = os.getenv("INSTAGRAM_PROXY", "").strip()
 PING_MIN_SECONDS = max(20, int(os.getenv("IG247_PING_MIN", "38")))
 PING_MAX_SECONDS = max(PING_MIN_SECONDS, int(os.getenv("IG247_PING_MAX", "48")))
 COMMAND_MAX_AGE_MS = 120_000
+LOCAL_PACKAGE_DIR = Path(os.getenv("IG247_PACKAGE_DIR", ".ig247_packages")).resolve()
+
+if LOCAL_PACKAGE_DIR.exists() and str(LOCAL_PACKAGE_DIR) not in sys.path:
+    sys.path.insert(0, str(LOCAL_PACKAGE_DIR))
+
+
+def relay_headers(method: str, direction: str, after: int, message: str) -> dict[str, str]:
+    timestamp = str(int(time.time() * 1000))
+    canonical = "\n".join((method.upper(), direction, timestamp, str(int(after)), message))
+    signature = hmac.new(bytes.fromhex(RELAY_CHANNEL), canonical.encode("utf-8"), hashlib.sha256).hexdigest()
+    return {
+        "Content-Type": "application/json",
+        "x-ig247-ts": timestamp,
+        "x-ig247-signature": signature,
+        "User-Agent": "Instagram247-AllPredictor-Supabase/2.0",
+    }
+
+
+def relay_post_stdlib(direction: str, message: str) -> dict:
+    body = json.dumps(
+        {"channel": RELAY_CHANNEL, "direction": direction, "message": message},
+        separators=(",", ":"),
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        RELAY_URL,
+        data=body,
+        method="POST",
+        headers=relay_headers("POST", direction, 0, message),
+    )
+    with urllib.request.urlopen(request, timeout=15) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def bootstrap_emit(stage: str, detail: str = "") -> None:
+    payload = json.dumps(
+        {
+            "protocol": "ig247-bootstrap-v2",
+            "stage": str(stage),
+            "detail": str(detail)[:500],
+            "python": platform.python_version(),
+            "ts": time.time(),
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    signature = hmac.new(
+        hashlib.sha256(("bootstrap:" + PAIR_SECRET).encode("utf-8")).digest(),
+        payload,
+        hashlib.sha256,
+    ).hexdigest()
+    message = "IG247BOOT2." + base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=") + "." + signature
+    print(f"IG247 BOOTSTRAP {stage}: {detail}", flush=True)
+    try:
+        relay_post_stdlib("evt", message)
+    except Exception as exc:
+        print(f"IG247 BOOTSTRAP SEND ERROR: {type(exc).__name__}: {exc}", flush=True)
+
+
+bootstrap_emit("python_started", f"{platform.system()} {platform.release()}")
 
 
 def ensure(module: str, package: str | None = None):
     try:
         return importlib.import_module(module)
-    except Exception:
+    except Exception as import_error:
         package = package or module
+        LOCAL_PACKAGE_DIR.mkdir(parents=True, exist_ok=True)
         commands = [
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--disable-pip-version-check",
+                "--no-input",
+                "--target",
+                str(LOCAL_PACKAGE_DIR),
+                package,
+            ],
             [sys.executable, "-m", "pip", "install", "--user", package],
             [sys.executable, "-m", "pip", "install", package],
         ]
@@ -65,16 +141,25 @@ def ensure(module: str, package: str | None = None):
         for command in commands:
             try:
                 subprocess.check_call(command)
+                if str(LOCAL_PACKAGE_DIR) not in sys.path:
+                    sys.path.insert(0, str(LOCAL_PACKAGE_DIR))
                 importlib.invalidate_caches()
-                return importlib.import_module(module)
+                imported = importlib.import_module(module)
+                bootstrap_emit("dependency_ready", package)
+                return imported
             except Exception as exc:
                 last_error = exc
+        bootstrap_emit(
+            "dependency_error",
+            f"{package}: import={type(import_error).__name__}; install={type(last_error).__name__}: {last_error}",
+        )
         raise RuntimeError(f"Не удалось установить {package}: {last_error}")
 
 
 requests = ensure("requests")
 ensure("cryptography")
 ensure("instagrapi", "instagrapi==2.18.17")
+bootstrap_emit("dependencies_ready", "requests + cryptography + instagrapi")
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -91,6 +176,34 @@ from instagrapi.exceptions import (
 
 http = requests.Session()
 http.headers.update({"User-Agent": "Instagram247-Hardened/1.0"})
+
+
+def relay_post(direction: str, message: str) -> dict:
+    response = http.post(
+        RELAY_URL,
+        json={"channel": RELAY_CHANNEL, "direction": direction, "message": message},
+        headers=relay_headers("POST", direction, 0, message),
+        timeout=15,
+    )
+    response.raise_for_status()
+    data = response.json()
+    if not data.get("ok"):
+        raise RuntimeError(str(data.get("error") or "RELAY_POST_FAILED"))
+    return data
+
+
+def relay_get(direction: str, after: int) -> list[dict]:
+    response = http.get(
+        RELAY_URL,
+        params={"channel": RELAY_CHANNEL, "direction": direction, "after": int(after)},
+        headers=relay_headers("GET", direction, after, ""),
+        timeout=15,
+    )
+    response.raise_for_status()
+    data = response.json()
+    if not data.get("ok"):
+        raise RuntimeError(str(data.get("error") or "RELAY_GET_FAILED"))
+    return list(data.get("events") or [])
 
 
 def secure_write(path: Path, text: str) -> None:
@@ -206,12 +319,7 @@ def emit(kind: str, text: str, state: str | None = None, **extra) -> None:
         payload["state"] = state
     payload.update(extra)
     try:
-        response = http.post(
-            f"{NTFY_BASE}/{EVT_TOPIC}",
-            data=seal_json(payload).encode("utf-8"),
-            timeout=12,
-        )
-        response.raise_for_status()
+        relay_post("evt", seal_json(payload))
     except Exception as exc:
         print(f"EVENT ERROR: {type(exc).__name__}: {exc}", flush=True)
 
@@ -620,21 +728,19 @@ def start_health_server() -> None:
 
 
 def command_loop() -> None:
-    print("Instagram 24/7 HARDENED bridge started", flush=True)
+    print("Instagram 24/7 HARDENED Supabase bridge started", flush=True)
+    relay_cursor = 0
     while True:
         try:
-            response = http.get(
-                f"{NTFY_BASE}/{CMD_TOPIC}/json",
-                params={"poll": "1", "since": "30s"},
-                timeout=15,
-            )
-            response.raise_for_status()
-            for line in response.text.splitlines():
+            for event in relay_get("cmd", relay_cursor):
+                event_id = int(event.get("id") or 0)
+                if event_id > relay_cursor:
+                    relay_cursor = event_id
                 try:
-                    event = json.loads(line)
-                    if event.get("event") != "message" or not event.get("message"):
+                    message = str(event.get("message") or "")
+                    if not message:
                         continue
-                    command, device = verify_signed_envelope(open_json(event["message"]))
+                    command, device = verify_signed_envelope(open_json(message))
                     request_id = str(command.get("request_id") or "")
                     if request_id and request_id in seen_set:
                         continue
