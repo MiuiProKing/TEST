@@ -62,7 +62,7 @@ CUSTOMER_ID = os.getenv(
 ).strip()
 SESSION_ID = os.getenv(
     "V0XFF3_SESSION_ID",
-    "783ee79a-dafc-479e-bf22-834336380cdf",
+    "00000000-0000-4000-8000-000000000000",
 ).strip()
 
 POLL_SEC = max(2, int(os.getenv("V0XFF3_POLL_SEC", "4")))
