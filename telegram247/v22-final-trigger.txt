@@ -1,0 +1,1 @@
+Trigger V2.2 QR using updated hardened workflow
