@@ -1,4 +1,4 @@
-name: Build Instagram 24-7 SUPABASE RELAY V2.1
+name: Build Instagram 24-7 SUPABASE RELAY V2.2
 
 on:
   workflow_dispatch:
@@ -67,7 +67,7 @@ jobs:
           cp instagram247/Instagram24_HARDENED_README_RU.txt dist/Instagram24_SUPABASE_RELAY_README_RU.txt
           (
             cd "$RUNNER_TEMP/package"
-            /usr/bin/zip -qry "$GITHUB_WORKSPACE/dist/Instagram-24-7-SUPABASE-RELAY-V2.1-unsigned.ipa" Payload
+            /usr/bin/zip -qry "$GITHUB_WORKSPACE/dist/Instagram-24-7-SUPABASE-RELAY-V2.2-unsigned.ipa" Payload
           )
           /usr/bin/plutil -p "$APP/Info.plist"
           /usr/bin/file "$APP/OneWinClock"
@@ -80,6 +80,8 @@ jobs:
           )"
           /usr/bin/strings "$APP/OneWinClock" | /usr/bin/grep -F -q "$PAIR_SECRET"
           /usr/bin/grep -q "RATE_LIMIT_COOLDOWN_SECONDS" dist/Instagram24_Server_AUTOPAIR_ALLPREDICTOR.py
+          /usr/bin/grep -q "LOGIN_CONTEXT_FILE" dist/Instagram24_Server_AUTOPAIR_ALLPREDICTOR.py
+          /usr/bin/grep -q 'fields\["verification_code"\]' instagram247/Instagram247App/OneWinClock/ViewController.swift
           /usr/bin/grep -q "loginRequestPending" instagram247/Instagram247App/OneWinClock/ViewController.swift
           if /usr/bin/grep -q "ntfy.sh" instagram247/Instagram247App/OneWinClock/ViewController.swift instagram247/Instagram24_Server_HARDENED_PAIRED.py; then
             echo "Legacy ntfy transport is still present"
@@ -89,15 +91,15 @@ jobs:
             echo "Expected an unsigned app, but a signature was found"
             exit 1
           fi
-          unzip -t dist/Instagram-24-7-SUPABASE-RELAY-V2.1-unsigned.ipa
+          unzip -t dist/Instagram-24-7-SUPABASE-RELAY-V2.2-unsigned.ipa
 
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: Instagram-24-7-SUPABASE-RELAY-V2.1
+          name: Instagram-24-7-SUPABASE-RELAY-V2.2
           if-no-files-found: error
           retention-days: 1
           path: |
-            dist/Instagram-24-7-SUPABASE-RELAY-V2.1-unsigned.ipa
+            dist/Instagram-24-7-SUPABASE-RELAY-V2.2-unsigned.ipa
             dist/Instagram24_Server_AUTOPAIR_ALLPREDICTOR.py
             dist/Instagram24_SUPABASE_RELAY_README_RU.txt

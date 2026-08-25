@@ -27,6 +27,7 @@ import json
 import os
 import platform
 import random
+import re
 import subprocess
 import sys
 import threading
@@ -47,6 +48,7 @@ RELAY_URL = os.getenv(
 ).rstrip("/")
 RELAY_CHANNEL = hashlib.sha256(("supabase-relay:" + PAIR_SECRET).encode("utf-8")).hexdigest()
 SESSION_FILE = Path(os.getenv("IG247_SESSION_FILE", "instagram247_session.enc"))
+LOGIN_CONTEXT_FILE = Path(os.getenv("IG247_LOGIN_CONTEXT_FILE", "instagram247_login_context.enc"))
 DEVICE_FILE = Path(os.getenv("IG247_DEVICE_FILE", "instagram247_device.json"))
 SETTINGS_FILE = Path(os.getenv("IG247_SETTINGS_FILE", "instagram247_settings.json"))
 SEEN_FILE = Path(os.getenv("IG247_SEEN_FILE", "instagram247_seen.json"))
@@ -428,8 +430,51 @@ def load_session_bundle() -> dict | None:
     return data
 
 
+def save_login_context(client: Client) -> None:
+    if vault_key is None:
+        return
+    device = load_device()
+    if not device:
+        return
+    data = {
+        "settings": client.get_settings(),
+        "device_fingerprint": device["fingerprint"],
+        "saved_at": time.time(),
+        "format": 1,
+    }
+    secure_write(LOGIN_CONTEXT_FILE, seal_json(data, vault_cipher_key(vault_key)))
+
+
+def load_login_context() -> dict | None:
+    if not LOGIN_CONTEXT_FILE.exists() or vault_key is None:
+        return None
+    try:
+        data = open_json(LOGIN_CONTEXT_FILE.read_text(encoding="utf-8"), vault_cipher_key(vault_key))
+        device = load_device()
+        if not device or data.get("device_fingerprint") != device.get("fingerprint"):
+            return None
+        return data if isinstance(data.get("settings"), dict) else None
+    except Exception:
+        return None
+
+
+def clear_login_context() -> None:
+    try:
+        LOGIN_CONTEXT_FILE.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
 def make_client() -> Client:
     client = Client()
+    context = load_login_context()
+    if context:
+        client.set_settings(context["settings"])
+    else:
+        client.set_locale("uk_UA")
+        client.set_country("UA")
+        client.set_country_code(380)
+        client.set_timezone_offset(10800, timezone_name="Europe/Kyiv")
     client.delay_range = [1, 3]
     if PROXY:
         client.set_proxy(PROXY)
@@ -466,6 +511,7 @@ def finish_login(client: Client, username: str, password: str) -> None:
         instagram_rate_limit_until = 0
         save_rate_limit_until(0)
         save_online_setting(True)
+        clear_login_context()
     ensure_online_thread()
     emit(
         "login_ok",
@@ -474,12 +520,13 @@ def finish_login(client: Client, username: str, password: str) -> None:
     )
 
 
-def login_start(username: str, password: str) -> None:
+def login_start(username: str, password: str, verification_code: str = "") -> None:
     global pending_login, login_in_progress, last_login_attempt, instagram_rate_limit_until, last_error
     if vault_key is None:
         raise RuntimeError("сначала разблокируй сервер из IPA")
     username = str(username or "").strip().lstrip("@")
     password = str(password or "")
+    verification_code = re.sub(r"[\s-]+", "", str(verification_code or ""))
     if not username or not password:
         raise ValueError("введи логин и пароль Instagram")
 
@@ -506,13 +553,26 @@ def login_start(username: str, password: str) -> None:
 
     try:
         client = make_client()
+        save_login_context(client)
         pending_login = {"username": username, "password": password, "created_at": time.time()}
         try:
-            client.login(username, password)
+            if verification_code:
+                client.login(username, password, verification_code=verification_code)
+            else:
+                client.login(username, password)
         except TwoFactorRequired:
-            emit("need_2fa", "🔐 Instagram действительно запросил одноразовый код 2FA. Теперь введи актуальный код в приложении.", state="connected")
+            save_login_context(client)
+            if verification_code:
+                emit(
+                    "login_error",
+                    "❌ Instagram не принял этот код или не выдал контекст 2FA. Код WhatsApp от входа Chrome здесь не подходит; используй текущий Authenticator или резервный 8-значный код.",
+                    state="connected",
+                )
+            else:
+                emit("need_2fa", "🔐 Instagram действительно запросил одноразовый код 2FA. Введи текущий код Authenticator/SMS или резервный 8-значный код.", state="connected")
             return
         except ChallengeRequired:
+            save_login_context(client)
             emit(
                 "login_error",
                 "⚠️ Это проверка нового входа, а не 2FA-код. Подтверди попытку в официальном Instagram и не нажимай вход повторно сразу.",
@@ -520,6 +580,7 @@ def login_start(username: str, password: str) -> None:
             )
             return
         except PleaseWaitFewMinutes as exc:
+            save_login_context(client)
             instagram_rate_limit_until = time.time() + RATE_LIMIT_COOLDOWN_SECONDS
             save_rate_limit_until(instagram_rate_limit_until)
             last_error = str(exc)[:220]
@@ -531,6 +592,7 @@ def login_start(username: str, password: str) -> None:
             )
             return
         except Exception as exc:
+            save_login_context(client)
             if is_instagram_rate_limit(exc):
                 instagram_rate_limit_until = time.time() + RATE_LIMIT_COOLDOWN_SECONDS
                 save_rate_limit_until(instagram_rate_limit_until)
@@ -558,7 +620,11 @@ def login_code(code: str) -> None:
     client = make_client()
     username = str(pending_login["username"])
     password = str(pending_login["password"])
-    client.login(username, password, verification_code=code)
+    try:
+        client.login(username, password, verification_code=code)
+    except Exception:
+        save_login_context(client)
+        raise
     finish_login(client, username, password)
 
 
@@ -736,6 +802,7 @@ def logout_server() -> None:
         SESSION_FILE.unlink(missing_ok=True)
     except Exception:
         pass
+    clear_login_context()
     clear_vault_key()
     emit("logged_out", "🚨 Серверная Instagram-сессия удалена. Для нового входа снова открой IPA.", state="logged_out")
 
@@ -756,7 +823,11 @@ def execute_command(command: dict, device: dict) -> None:
     if action == "unlock":
         return unlock_vault(str(fields.get("vault_key") or ""))
     if action == "login_start":
-        return login_start(str(fields.get("username") or ""), str(fields.get("password") or ""))
+        return login_start(
+            str(fields.get("username") or ""),
+            str(fields.get("password") or ""),
+            str(fields.get("verification_code") or ""),
+        )
     if action == "login_code":
         return login_code(str(fields.get("code") or ""))
     if action == "online_start":

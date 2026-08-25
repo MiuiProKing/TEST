@@ -198,11 +198,17 @@ final class ViewController: UIViewController, UITextFieldDelegate {
         usernameField.autocapitalizationType = .none
         configureField(passwordField, placeholder: "Пароль — хранится в Keychain", secure: true)
         passwordField.textContentType = .password
-        configureField(codeField, placeholder: "Одноразовый код 2FA", secure: false)
+        configureField(codeField, placeholder: "Authenticator 6 цифр / резервный 8 цифр", secure: false)
         codeField.keyboardType = .numberPad
         credentials.addArrangedSubview(usernameField)
         credentials.addArrangedSubview(passwordField)
         credentials.addArrangedSubview(codeField)
+        let codeHint = UILabel()
+        codeHint.text = "Код можно ввести до первого входа. Код WhatsApp, выданный для входа Chrome, здесь не подходит."
+        codeHint.textColor = UIColor.white.withAlphaComponent(0.62)
+        codeHint.font = .systemFont(ofSize: 12, weight: .medium)
+        codeHint.numberOfLines = 0
+        credentials.addArrangedSubview(codeHint)
         contentStack.addArrangedSubview(credentials)
 
         configureButton(connectButton, title: "🔗 АВТОПОДКЛЮЧЕНИЕ СЕРВЕРА", color: .systemPurple, selector: #selector(connectTapped))
@@ -613,6 +619,9 @@ final class ViewController: UIViewController, UITextFieldDelegate {
         }
         let username = (usernameField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "@", with: "")
         let password = passwordField.text ?? ""
+        let verificationCode = (codeField.text ?? "")
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "-", with: "")
         guard !username.isEmpty, !password.isEmpty else {
             showLocalError("Введи логин и пароль Instagram")
             return
@@ -623,8 +632,14 @@ final class ViewController: UIViewController, UITextFieldDelegate {
         loginRequestPending = true
         loginButton.isEnabled = false
         loginButton.alpha = 0.45
-        sendCommand("login_start", fields: ["username": username, "password": password])
-        setStatus(title: "INSTAGRAM: ВХОД…", detail: "Ожидаю ответ Instagram. При запросе введи код 2FA.", color: .systemOrange)
+        var fields: [String: Any] = ["username": username, "password": password]
+        if !verificationCode.isEmpty { fields["verification_code"] = verificationCode }
+        sendCommand("login_start", fields: fields)
+        codeField.text = ""
+        let loginDetail = verificationCode.isEmpty
+            ? "Ожидаю ответ Instagram. При настоящем запросе 2FA кнопка кода станет активной."
+            : "Отправлен один вход сразу с кодом Authenticator/backup. Ожидаю ответ Instagram."
+        setStatus(title: "INSTAGRAM: ВХОД…", detail: loginDetail, color: .systemOrange)
         DispatchQueue.main.asyncAfter(deadline: .now() + 90) { [weak self] in
             guard let self, self.loginRequestPending else { return }
             self.loginRequestPending = false
