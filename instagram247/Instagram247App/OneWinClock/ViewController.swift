@@ -77,12 +77,17 @@ final class ViewController: UIViewController, UITextFieldDelegate {
     private var relayCursor: Int64 = 0
     private var seenEventIDs: [String] = []
     private var seenEventSet = Set<String>()
+    private var lastAutoConnectAt = Date.distantPast
+    private var lastLoginCommandAt = Date.distantPast
+    private var loginRequestPending = false
+    private var twoFactorRequested = false
     private var gradientLayer: CAGradientLayer?
 
     override func viewDidLoad() {
         super.viewDidLoad()
         buildBackground()
         buildUI()
+        relayCursor = Int64(UserDefaults.standard.integer(forKey: "instagram247.relay_cursor"))
         loadSavedCredentials()
         startPolling()
         NotificationCenter.default.addObserver(
@@ -91,8 +96,7 @@ final class ViewController: UIViewController, UITextFieldDelegate {
             name: UIApplication.didBecomeActiveNotification,
             object: nil
         )
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in self?.connectAndUnlock() }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.2) { [weak self] in self?.sendCommand("status") }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in self?.autoConnectIfNeeded() }
     }
 
     deinit {
@@ -204,6 +208,8 @@ final class ViewController: UIViewController, UITextFieldDelegate {
         configureButton(connectButton, title: "🔗 АВТОПОДКЛЮЧЕНИЕ СЕРВЕРА", color: .systemPurple, selector: #selector(connectTapped))
         configureButton(loginButton, title: "🔐 ВОЙТИ INSTAGRAM", color: UIColor(red: 0.95, green: 0.16, blue: 0.52, alpha: 1), selector: #selector(loginTapped))
         configureButton(codeButton, title: "📩 ОТПРАВИТЬ КОД 2FA", color: .systemIndigo, selector: #selector(codeTapped))
+        codeButton.isEnabled = false
+        codeButton.alpha = 0.45
         contentStack.addArrangedSubview(connectButton)
         contentStack.addArrangedSubview(loginButton)
         contentStack.addArrangedSubview(codeButton)
@@ -432,6 +438,7 @@ final class ViewController: UIViewController, UITextFieldDelegate {
             URLSession.shared.dataTask(with: request) { [weak self] _, response, error in
                 DispatchQueue.main.async {
                     if let error {
+                        if let urlError = error as? URLError, urlError.code == .cancelled { return }
                         self?.showLocalError("Не удалось отправить команду: \(error.localizedDescription)")
                     } else if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
                         self?.showLocalError("Сервис связи HTTP \(http.statusCode)")
@@ -459,6 +466,13 @@ final class ViewController: UIViewController, UITextFieldDelegate {
         } catch {
             showLocalError(error.localizedDescription)
         }
+    }
+
+    private func autoConnectIfNeeded() {
+        guard Date().timeIntervalSince(lastAutoConnectAt) >= 8 else { return }
+        lastAutoConnectAt = Date()
+        connectAndUnlock()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.8) { [weak self] in self?.sendCommand("status") }
     }
 
     private func startPolling() {
@@ -490,6 +504,7 @@ final class ViewController: UIViewController, UITextFieldDelegate {
             DispatchQueue.main.async { self?.polling = false }
             guard let self else { return }
             if let error {
+                if let urlError = error as? URLError, urlError.code == .cancelled { return }
                 DispatchQueue.main.async { self.showLocalError("Релей недоступен: \(error.localizedDescription)") }
                 return
             }
@@ -506,6 +521,7 @@ final class ViewController: UIViewController, UITextFieldDelegate {
                 guard eventIDValue > 0, let message = event["message"] as? String else { continue }
                 DispatchQueue.main.async {
                     self.relayCursor = max(self.relayCursor, eventIDValue)
+                    UserDefaults.standard.set(Int(self.relayCursor), forKey: "instagram247.relay_cursor")
                     let eventID = "relay-\(eventIDValue)"
                     guard !self.seenEventSet.contains(eventID) else { return }
                     self.rememberEvent(eventID)
@@ -525,12 +541,29 @@ final class ViewController: UIViewController, UITextFieldDelegate {
     }
 
     private func applyEvent(_ payload: [String: Any]) {
-        if let timestamp = payload["ts"] as? TimeInterval,
-           abs(Date().timeIntervalSince1970 - timestamp) > 600 { return }
+        let timestamp = payload["ts"] as? TimeInterval ?? Date().timeIntervalSince1970
+        if abs(Date().timeIntervalSince1970 - timestamp) > 600 { return }
+        let kind = payload["kind"] as? String ?? ""
         let text = payload["text"] as? String ?? "Ответ без текста"
         let state = payload["state"] as? String ?? "connected"
-        let time = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+        let time = DateFormatter.localizedString(from: Date(timeIntervalSince1970: timestamp), dateStyle: .none, timeStyle: .medium)
         logView.text = "\(time)\n\(text)\n\n" + String(logView.text.prefix(1800))
+        if ["need_2fa", "login_ok", "login_error", "login_wait", "rate_limited", "error"].contains(kind) {
+            loginRequestPending = false
+            loginButton.isEnabled = kind != "rate_limited"
+            loginButton.alpha = loginButton.isEnabled ? 1 : 0.45
+        }
+        if kind == "need_2fa" {
+            twoFactorRequested = true
+        } else if ["login_ok", "login_error", "rate_limited", "logged_out"].contains(kind) {
+            twoFactorRequested = false
+        }
+        codeButton.isEnabled = twoFactorRequested
+        codeButton.alpha = twoFactorRequested ? 1 : 0.45
+        if kind == "rate_limited" {
+            setStatus(title: "INSTAGRAM: ПАУЗА 429", detail: text, color: .systemOrange)
+            return
+        }
         switch state {
         case "online":
             setStatus(title: "СЕРВЕР: ONLINE 24/7", detail: "Realtime MQTT работает независимо от IPA.", color: .systemGreen)
@@ -561,14 +594,23 @@ final class ViewController: UIViewController, UITextFieldDelegate {
     }
 
     @objc private func appBecameActive() {
-        connectAndUnlock()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.8) { [weak self] in self?.sendCommand("status") }
+        autoConnectIfNeeded()
     }
 
-    @objc private func connectTapped() { connectAndUnlock() }
+    @objc private func connectTapped() { autoConnectIfNeeded() }
 
     @objc private func loginTapped() {
         view.endEditing(true)
+        guard !loginRequestPending else {
+            showLocalError("Запрос входа уже отправлен. Дождись ответа Instagram и не нажимай повторно.")
+            return
+        }
+        let secondsSinceLastCommand = Date().timeIntervalSince(lastLoginCommandAt)
+        guard secondsSinceLastCommand >= 120 else {
+            let wait = Int(ceil(120 - secondsSinceLastCommand))
+            showLocalError("Защита от блокировки: повторный вход можно отправить через \(wait) сек.")
+            return
+        }
         let username = (usernameField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "@", with: "")
         let password = passwordField.text ?? ""
         guard !username.isEmpty, !password.isEmpty else {
@@ -577,12 +619,26 @@ final class ViewController: UIViewController, UITextFieldDelegate {
         }
         UserDefaults.standard.set(username, forKey: "instagram247.username")
         SecureStore.save(Data(password.utf8), account: "instagram_password")
+        lastLoginCommandAt = Date()
+        loginRequestPending = true
+        loginButton.isEnabled = false
+        loginButton.alpha = 0.45
         sendCommand("login_start", fields: ["username": username, "password": password])
         setStatus(title: "INSTAGRAM: ВХОД…", detail: "Ожидаю ответ Instagram. При запросе введи код 2FA.", color: .systemOrange)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 90) { [weak self] in
+            guard let self, self.loginRequestPending else { return }
+            self.loginRequestPending = false
+            self.loginButton.isEnabled = true
+            self.loginButton.alpha = 1
+        }
     }
 
     @objc private func codeTapped() {
         view.endEditing(true)
+        guard twoFactorRequested else {
+            showLocalError("Instagram не запрашивал 2FA. При проверке входа код не нужен — подтверди вход в официальном Instagram.")
+            return
+        }
         let code = (codeField.text ?? "").replacingOccurrences(of: " ", with: "")
         guard !code.isEmpty else {
             showLocalError("Введи одноразовый код Instagram")

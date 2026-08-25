@@ -50,11 +50,14 @@ SESSION_FILE = Path(os.getenv("IG247_SESSION_FILE", "instagram247_session.enc"))
 DEVICE_FILE = Path(os.getenv("IG247_DEVICE_FILE", "instagram247_device.json"))
 SETTINGS_FILE = Path(os.getenv("IG247_SETTINGS_FILE", "instagram247_settings.json"))
 SEEN_FILE = Path(os.getenv("IG247_SEEN_FILE", "instagram247_seen.json"))
+RATE_LIMIT_FILE = Path(os.getenv("IG247_RATE_LIMIT_FILE", "instagram247_rate_limit.json"))
 PROXY = os.getenv("INSTAGRAM_PROXY", "").strip()
 
 PING_MIN_SECONDS = max(20, int(os.getenv("IG247_PING_MIN", "38")))
 PING_MAX_SECONDS = max(PING_MIN_SECONDS, int(os.getenv("IG247_PING_MAX", "48")))
 COMMAND_MAX_AGE_MS = 120_000
+LOGIN_MIN_INTERVAL_SECONDS = max(120, int(os.getenv("IG247_LOGIN_MIN_INTERVAL", "180")))
+RATE_LIMIT_COOLDOWN_SECONDS = max(3600, int(os.getenv("IG247_429_COOLDOWN", "43200")))
 LOCAL_PACKAGE_DIR = Path(os.getenv("IG247_PACKAGE_DIR", ".ig247_packages")).resolve()
 
 if LOCAL_PACKAGE_DIR.exists() and str(LOCAL_PACKAGE_DIR) not in sys.path:
@@ -357,6 +360,22 @@ def save_online_setting(enabled: bool) -> None:
     secure_write(SETTINGS_FILE, json.dumps({"online_enabled": bool(enabled)}, separators=(",", ":")))
 
 
+def load_rate_limit_until() -> float:
+    try:
+        return float(json.loads(RATE_LIMIT_FILE.read_text(encoding="utf-8")).get("until", 0))
+    except Exception:
+        return 0.0
+
+
+def save_rate_limit_until(value: float) -> None:
+    secure_write(RATE_LIMIT_FILE, json.dumps({"until": float(value)}, separators=(",", ":")))
+
+
+def is_instagram_rate_limit(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "429" in message or "too many" in message or "please wait" in message
+
+
 vault_key: bytes | None = None
 instagram_client: Client | None = None
 realtime_client = None
@@ -367,6 +386,9 @@ online_stop_event = threading.Event()
 state_lock = threading.RLock()
 last_heartbeat: float | None = None
 last_error = ""
+login_in_progress = False
+last_login_attempt = 0.0
+instagram_rate_limit_until = load_rate_limit_until()
 
 
 def set_vault_key(value_b64: str) -> None:
@@ -427,7 +449,7 @@ def disconnect_runtime() -> None:
 
 
 def finish_login(client: Client, username: str, password: str) -> None:
-    global instagram_client, pending_login, online_enabled, last_error
+    global instagram_client, pending_login, online_enabled, last_error, instagram_rate_limit_until
     save_session_bundle(
         {
             "username": username,
@@ -441,6 +463,8 @@ def finish_login(client: Client, username: str, password: str) -> None:
         pending_login = None
         online_enabled = True
         last_error = ""
+        instagram_rate_limit_until = 0
+        save_rate_limit_until(0)
         save_online_setting(True)
     ensure_online_thread()
     emit(
@@ -451,7 +475,7 @@ def finish_login(client: Client, username: str, password: str) -> None:
 
 
 def login_start(username: str, password: str) -> None:
-    global pending_login
+    global pending_login, login_in_progress, last_login_attempt, instagram_rate_limit_until, last_error
     if vault_key is None:
         raise RuntimeError("сначала разблокируй сервер из IPA")
     username = str(username or "").strip().lstrip("@")
@@ -459,14 +483,70 @@ def login_start(username: str, password: str) -> None:
     if not username or not password:
         raise ValueError("введи логин и пароль Instagram")
 
-    client = make_client()
-    pending_login = {"username": username, "password": password, "created_at": time.time()}
-    try:
-        client.login(username, password)
-    except TwoFactorRequired:
-        emit("need_2fa", "🔐 Instagram запросил одноразовый код 2FA. Введи его в приложении.", state="connected")
+    now = time.time()
+    if now < instagram_rate_limit_until:
+        wait_minutes = max(1, int((instagram_rate_limit_until - now + 59) // 60))
+        emit(
+            "rate_limited",
+            f"⛔ Instagram временно ограничил вход (429). Не повторяй попытку ещё примерно {wait_minutes} мин.",
+            state="connected",
+            retry_after_seconds=int(instagram_rate_limit_until - now),
+        )
         return
-    finish_login(client, username, password)
+    with state_lock:
+        if login_in_progress:
+            emit("login_wait", "⏳ Запрос входа уже выполняется. Повторная команда отменена.", state="connected")
+            return
+        if now - last_login_attempt < LOGIN_MIN_INTERVAL_SECONDS:
+            wait_seconds = int(LOGIN_MIN_INTERVAL_SECONDS - (now - last_login_attempt)) + 1
+            emit("login_wait", f"⏳ Защита от блокировки: повторный вход через {wait_seconds} сек.", state="connected")
+            return
+        login_in_progress = True
+        last_login_attempt = now
+
+    try:
+        client = make_client()
+        pending_login = {"username": username, "password": password, "created_at": time.time()}
+        try:
+            client.login(username, password)
+        except TwoFactorRequired:
+            emit("need_2fa", "🔐 Instagram действительно запросил одноразовый код 2FA. Теперь введи актуальный код в приложении.", state="connected")
+            return
+        except ChallengeRequired:
+            emit(
+                "login_error",
+                "⚠️ Это проверка нового входа, а не 2FA-код. Подтверди попытку в официальном Instagram и не нажимай вход повторно сразу.",
+                state="connected",
+            )
+            return
+        except PleaseWaitFewMinutes as exc:
+            instagram_rate_limit_until = time.time() + RATE_LIMIT_COOLDOWN_SECONDS
+            save_rate_limit_until(instagram_rate_limit_until)
+            last_error = str(exc)[:220]
+            emit(
+                "rate_limited",
+                "⛔ Instagram ограничил частые попытки. Сервер поставил безопасную паузу на 12 часов.",
+                state="connected",
+                retry_after_seconds=RATE_LIMIT_COOLDOWN_SECONDS,
+            )
+            return
+        except Exception as exc:
+            if is_instagram_rate_limit(exc):
+                instagram_rate_limit_until = time.time() + RATE_LIMIT_COOLDOWN_SECONDS
+                save_rate_limit_until(instagram_rate_limit_until)
+                last_error = str(exc)[:220]
+                emit(
+                    "rate_limited",
+                    "⛔ Instagram ответил 429. Сервер остановил новые входы на 12 часов, чтобы не усилить блокировку.",
+                    state="connected",
+                    retry_after_seconds=RATE_LIMIT_COOLDOWN_SECONDS,
+                )
+                return
+            raise
+        finish_login(client, username, password)
+    finally:
+        with state_lock:
+            login_in_progress = False
 
 
 def login_code(code: str) -> None:
@@ -612,6 +692,8 @@ def status_text() -> None:
         username = "@" + str(bundle.get("username")) if bundle else "не активирован"
     except Exception:
         username = "недоступен"
+    rate_limit_left = max(0, int(instagram_rate_limit_until - time.time()))
+    rate_limit_status = "нет" if rate_limit_left <= 0 else f"ещё {max(1, (rate_limit_left + 59) // 60)} мин"
     emit(
         "status",
         "✅ Сервер Instagram 24/7 работает\n"
@@ -621,6 +703,7 @@ def status_text() -> None:
         f"💾 Сессия: {session}\n"
         f"🟢 Онлайн 24/7: {'ВКЛ' if online_enabled else 'ВЫКЛ'}\n"
         f"💓 Последний keepalive: {heartbeat}\n"
+        f"⏳ Ограничение входа 429: {rate_limit_status}\n"
         f"⚠️ Последняя ошибка: {last_error or 'нет'}",
         state="online" if online_enabled else ("authorized" if SESSION_FILE.exists() else "connected"),
     )
@@ -728,6 +811,7 @@ def start_health_server() -> None:
 
 
 def command_loop() -> None:
+    global instagram_rate_limit_until, last_error
     print("Instagram 24/7 HARDENED Supabase bridge started", flush=True)
     relay_cursor = 0
     while True:
@@ -765,7 +849,18 @@ def command_loop() -> None:
                 except PermissionError as exc:
                     emit("security_error", "🚫 Команда отклонена: " + str(exc)[:180], state="connected")
                 except Exception as exc:
-                    emit("error", f"❌ {type(exc).__name__}: {str(exc)[:220]}", state="connected")
+                    if is_instagram_rate_limit(exc):
+                        instagram_rate_limit_until = time.time() + RATE_LIMIT_COOLDOWN_SECONDS
+                        save_rate_limit_until(instagram_rate_limit_until)
+                        last_error = str(exc)[:220]
+                        emit(
+                            "rate_limited",
+                            "⛔ Instagram ответил 429. Новые попытки автоматически остановлены на 12 часов.",
+                            state="connected",
+                            retry_after_seconds=RATE_LIMIT_COOLDOWN_SECONDS,
+                        )
+                    else:
+                        emit("error", f"❌ {type(exc).__name__}: {str(exc)[:220]}", state="connected")
         except Exception as exc:
             print(f"BRIDGE ERROR: {type(exc).__name__}: {exc}", flush=True)
         time.sleep(2)
