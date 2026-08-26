@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - onewin-kiborg-v2-server-sqlite
     paths:
       - 'onewin-clock-ios/**'
       - '.github/workflows/build-onewin-clock-ipa.yml'
