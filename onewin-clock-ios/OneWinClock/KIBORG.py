@@ -34,9 +34,9 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8393109013:AAFzZXGZPzVAkIRGtqLxnMTtsZTwK_YRDNU").strip()
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "-1003959529321").strip()
-SESSION_ID = os.getenv("LJ_SESSION_ID", "783ee79a-dafc-479e-bf22-834336380cdf").strip()
+SESSION_ID = os.getenv("LJ_SESSION_ID", "00000000-0000-4000-8000-000000000000").strip()
 CUSTOMER_ID = os.getenv("LJ_CUSTOMER_ID", "077dee8d-c923-4c02-9bee-757573662e69").strip()
 HISTORY_URL = os.getenv(
     "LJ_HISTORY_URL",
