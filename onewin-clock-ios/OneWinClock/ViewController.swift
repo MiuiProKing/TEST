@@ -143,7 +143,7 @@ private enum EngineMode: Int, CaseIterable {
         case .pro4Range: return "🔥 PRO 4 RANGE"
         case .twoTime: return "🕒 BABEL 2X TIME"
         case .bigTime: return "🚀 10X–100X LIVE"
-        case .killer: return "🧪 KILLER MONITOR"
+        case .killer: return "🦾 KIBORG_V2"
         case .montante: return "📶 MONTANTE MONITOR"
         case .watch: return "📊 WATCH / РЫНОК"
         case .kiborg: return "🤖 KIBORG"
@@ -165,7 +165,7 @@ private enum EngineMode: Int, CaseIterable {
         case .pro4Range: return "pro4_range"
         case .twoTime: return "two_time"
         case .bigTime: return "big_time"
-        case .killer: return "killer"
+        case .killer: return "kiborg_v2"
         case .montante: return "montante"
         case .watch: return "watch"
         case .kiborg: return "kiborg"
@@ -268,13 +268,13 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private let api = URL(string: "https://crash-gateway-grm-cr.100hp.app/history")!
     private let sqliteSnapshotAPI = URL(string: "https://xlidiojdbozxikjloiaj.supabase.co/functions/v1/v0xff3-live")!
     private let customerID = "077dee8d-c923-4c02-9bee-757573662e69"
-    private let sessionID = "00000000-0000-4000-8000-000000000000"
+    private let sessionID = "00000000-0000-0000-0000-000000000000"
     private let allPredictorURL = URL(string: "https://miuiproking.github.io/luckyjet-telegram-mini-app/index.html?v=20260823-3")!
     private let gameURL = URL(string: "https://1w-ftend.life/")!
     private let v0xFF3URL = URL(string: "https://miuiproking.github.io/luckyjet-telegram-mini-app/v0xff3.html?v=20260826-5")!
 
     private let selectedTabKey = "onewinclock.selectedTab.v3"
-    private let selectedModeKey = "onewinclock.selectedMode.v3"
+    private let selectedModeKey = "onewinclock.selectedMode.v4"
     private let autoBotKey = "onewinclock.autoBot.v3"
     private let statsKey = "onewinclock.botStats.v3"
     private let roundCacheKey = "onewinclock.roundCache.v3"
@@ -302,7 +302,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private var allPredictorWebView: WKWebView!
     private var gameWebView: WKWebView!
     private var v0xFF3WebView: WKWebView!
-    private var currentMode: EngineMode = .fusion
+    private var currentMode: EngineMode = .killer
     private var autoBotEnabled = true
     private var soundEnabled = true
     private var clockTimer: Timer?
@@ -354,7 +354,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
 
     private func loadSavedState() {
         let savedMode = UserDefaults.standard.integer(forKey: selectedModeKey)
-        currentMode = EngineMode(rawValue: savedMode) ?? .fusion
+        currentMode = EngineMode(rawValue: savedMode) ?? .killer
         if UserDefaults.standard.object(forKey: autoBotKey) != nil {
             autoBotEnabled = UserDefaults.standard.bool(forKey: autoBotKey)
         }
@@ -1437,7 +1437,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         case .pro4Range: return pro4RangeForecast(values)
         case .twoTime: return twoTimeForecast(values)
         case .bigTime: return bigTimeForecast(values)
-        case .killer: return unavailableForecast(mode, reason: "В присланной версии функция KILLER намеренно отключена: подтверждённой формулы нет.")
+        case .killer: return kiborgV2Forecast(values)
         case .montante: return unavailableForecast(mode, reason: "В присланных версиях MONTANTE указан как отдельный бот, но его формула отсутствует.")
         case .watch: return watchForecast(values)
         case .kiborg: return kiborgForecast(values)
@@ -1843,6 +1843,66 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             ready: selected.ready,
             reason: "выбран \(selected.mode.title) • согласованы \(consensus)/\(candidates.count) • \(selected.reason)",
             detail: "Нативный порт KIBORG.py: объединены BABEL, ALLPREDICTOR, PETIT/GRAND, PRO4, AI PRO и 10X–100X. Случайные модули исключены."
+        )
+    }
+
+    private func kiborgV2Forecast(_ values: [Double]) -> Forecast {
+        guard values.count >= 50 else {
+            return waitingForecast(.killer, reason: "KIBORG_V2 получает серверную SQLite и собирает минимум 50 завершённых раундов")
+        }
+
+        let metrics = marketMetrics(values)
+        let chronological = Array(values.prefix(500).reversed())
+
+        func intervalVote(target: Double, fallback: Double) -> (phase: Double, median: Double) {
+            let positions = chronological.indices.filter { chronological[$0] >= target }
+            let intervals = zip(positions, positions.dropFirst()).map { Double($0.1 - $0.0) }
+            let typical = intervals.isEmpty ? fallback : max(1, median(intervals.suffix(20)))
+            let currentGap = Double(positions.last.map { chronological.count - 1 - $0 } ?? chronological.count)
+            return (clamp(currentGap / typical / 1.25, 0, 1), typical)
+        }
+
+        let i10 = intervalVote(target: 10, fallback: 14)
+        let i20 = intervalVote(target: 20, fallback: 28)
+        let gap10Vote = clamp(Double(metrics.gap10) / max(i10.median, 1) / 1.25, 0, 1)
+        let gap20Vote = clamp(Double(metrics.gap20) / max(i20.median, 1) / 1.25, 0, 1)
+        let normalStability = 1 - clamp(metrics.volatility / 1.6, 0, 1)
+        let burst = clamp(metrics.p5 * 1.4 + metrics.p10 * 3 + metrics.p20 * 5, 0, 1)
+        let votes: [(String, Double)] = [
+            ("gap10", gap10Vote),
+            ("gap20", gap20Vote),
+            ("interval10", i10.phase),
+            ("interval20", i20.phase),
+            ("pattern", metrics.patternHigh),
+            ("time", metrics.timeScore),
+            ("stability", normalStability),
+            ("burst", burst)
+        ]
+        let strong = votes.filter { $0.1 >= 0.62 }
+        let voteMean = mean(votes.map(\.1))
+
+        let grand = grandComponents(metrics)
+        let strength = clamp(Double(strong.count - 3) / 5, 0, 1)
+        let target = round2(clamp(grand.target * (0.90 + 0.10 * strength), 10, 100))
+        let insurance = round2(clamp(grand.insurance * (0.95 + 0.05 * strength), 3, 30))
+        var confidence = 42 + voteMean * 36 + Double(strong.count) * 4
+        if strong.count < 4 { confidence = min(confidence, 69) }
+        if metrics.volatility > 1.6 { confidence -= 14 }
+        else if metrics.volatility > 1.15 { confidence -= 5 }
+        let confidenceInt = Int(round(clamp(confidence, 1, 95)))
+        let ready = confidenceInt >= 70 && strong.count >= 4 && metrics.volatility <= 1.6
+
+        return Forecast(
+            mode: .killer,
+            title: "🦾 KIBORG_V2 • KILLER FUSION",
+            target: target,
+            insurance: min(insurance, round2(target * 0.75)),
+            confidence: confidenceInt,
+            waitRounds: ready ? 0 : 1,
+            attempts: 3,
+            ready: ready,
+            reason: String(format: "голоса %d/8 • среднее %.2f • gap10/20 %d/%d • интервалы %.1f/%.1f", strong.count, voteMean, metrics.gap10, metrics.gap20, i10.median, i20.median),
+            detail: "Нативный порт присланной логики KILLER FUSION V5. Коэффициенты сначала синхронизируются с серверной SQLite, затем дополняются LIVE API по RU session-id. Прогноз не гарантирован."
         )
     }
 

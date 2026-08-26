@@ -12,6 +12,7 @@
 		A10000000000000000000003 /* IMG_2389.jpeg in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* IMG_2389.jpeg */; };
 		A10000000000000000000004 /* KIBORG.py in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* KIBORG.py */; };
 		A10000000000000000000005 /* V0xFF3(1).py in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* V0xFF3(1).py */; };
+		A10000000000000000000006 /* KIBORG_V2.py in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* KIBORG_V2.py */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -22,6 +23,7 @@
 		A20000000000000000000005 /* IMG_2389.jpeg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = IMG_2389.jpeg; sourceTree = "<group>"; };
 		A20000000000000000000006 /* KIBORG.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = KIBORG.py; sourceTree = "<group>"; };
 		A20000000000000000000007 /* V0xFF3(1).py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = "V0xFF3(1).py"; sourceTree = "<group>"; };
+		A20000000000000000000008 /* KIBORG_V2.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = KIBORG_V2.py; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -52,6 +54,7 @@
 				A20000000000000000000005 /* IMG_2389.jpeg */,
 				A20000000000000000000006 /* KIBORG.py */,
 				A20000000000000000000007 /* V0xFF3(1).py */,
+				A20000000000000000000008 /* KIBORG_V2.py */,
 			);
 			path = OneWinClock;
 			sourceTree = "<group>";
@@ -125,6 +128,7 @@
 				A10000000000000000000003 /* IMG_2389.jpeg in Resources */,
 				A10000000000000000000004 /* KIBORG.py in Resources */,
 				A10000000000000000000005 /* V0xFF3(1).py in Resources */,
+				A10000000000000000000006 /* KIBORG_V2.py in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -183,12 +187,12 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 8;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = OneWinClock/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
-				MARKETING_VERSION = 3.4;
+				MARKETING_VERSION = 3.5;
 				OTHER_LDFLAGS = ("$(inherited)", "-lsqlite3");
 				PRODUCT_BUNDLE_IDENTIFIER = com.miuiproking.OneWinClock;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -202,12 +206,12 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 8;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = OneWinClock/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
-				MARKETING_VERSION = 3.4;
+				MARKETING_VERSION = 3.5;
 				OTHER_LDFLAGS = ("$(inherited)", "-lsqlite3");
 				PRODUCT_BUNDLE_IDENTIFIER = com.miuiproking.OneWinClock;
 				PRODUCT_NAME = "$(TARGET_NAME)";

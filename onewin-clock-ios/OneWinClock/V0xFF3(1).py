@@ -62,7 +62,7 @@ CUSTOMER_ID = os.getenv(
 ).strip()
 SESSION_ID = os.getenv(
     "V0XFF3_SESSION_ID",
-    "00000000-0000-4000-8000-000000000000",
+    "00000000-0000-0000-0000-000000000000",
 ).strip()
 RELAY_URL = os.getenv(
     "V0XFF3_RELAY_URL",
