@@ -266,6 +266,7 @@ private struct FusionCandidate {
 
 final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate {
     private let api = URL(string: "https://crash-gateway-grm-cr.100hp.app/history")!
+    private let sqliteSnapshotAPI = URL(string: "https://xlidiojdbozxikjloiaj.supabase.co/functions/v1/v0xff3-live")!
     private let customerID = "077dee8d-c923-4c02-9bee-757573662e69"
     private let sessionID = "00000000-0000-4000-8000-000000000000"
     private let allPredictorURL = URL(string: "https://miuiproking.github.io/luckyjet-telegram-mini-app/index.html?v=20260823-3")!
@@ -307,6 +308,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private var clockTimer: Timer?
     private var liveTimer: Timer?
     private var liveRequestInFlight = false
+    private var remoteSnapshotInFlight = false
+    private var lastRemoteSnapshotAttempt = Date.distantPast
     private var latestRounds: [RoundSample] = []
     private var lastProcessedRoundID: String?
     private var pendingSignal: PendingSignal?
@@ -756,6 +759,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
 
     private func startTimers() {
         updateClock()
+        syncRemoteSQLiteSnapshotIfNeeded(force: true)
         pollLiveCoefficient()
         clockTimer?.invalidate()
         liveTimer?.invalidate()
@@ -780,6 +784,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     @objc private func pollLiveCoefficient() {
+        syncRemoteSQLiteSnapshotIfNeeded()
         guard !liveRequestInFlight else { return }
         liveRequestInFlight = true
         requestHistory { [weak self] result in
@@ -798,6 +803,73 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 }
             }
         }
+    }
+
+    private func syncRemoteSQLiteSnapshotIfNeeded(force: Bool = false) {
+        guard !remoteSnapshotInFlight else { return }
+        guard force || Date().timeIntervalSince(lastRemoteSnapshotAttempt) >= 15 else { return }
+        remoteSnapshotInFlight = true
+        lastRemoteSnapshotAttempt = Date()
+
+        var components = URLComponents(url: sqliteSnapshotAPI, resolvingAgainstBaseURL: false)
+        components?.queryItems = [
+            URLQueryItem(name: "limit", value: "5000"),
+            URLQueryItem(name: "t", value: String(Int(Date().timeIntervalSince1970 * 1_000)))
+        ]
+        guard let url = components?.url else {
+            remoteSnapshotInFlight = false
+            return
+        }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("application/json", forHTTPHeaderField: "accept")
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            guard let self else { return }
+            defer {
+                DispatchQueue.main.async { self.remoteSnapshotInFlight = false }
+            }
+            guard error == nil,
+                  let response = response as? HTTPURLResponse,
+                  (200...299).contains(response.statusCode),
+                  let data,
+                  let object = try? JSONSerialization.jsonObject(with: data),
+                  let dictionary = object as? [String: Any],
+                  let rawRows = dictionary["history"] as? [[String: Any]]
+            else { return }
+
+            var rows: [RoundSample] = []
+            var seen = Set<String>()
+            for (index, row) in rawRows.enumerated() {
+                guard var value = Self.num(row["topCoefficient"])
+                    ?? Self.num(row["coefficient"]), value > 0 else { continue }
+                if value == 1 { value = 1.01 }
+                let identifier = Self.roundIdentifier(row, index: index, coefficient: value)
+                guard !seen.contains(identifier) else { continue }
+                seen.insert(identifier)
+                rows.append(RoundSample(id: identifier, coefficient: value, timestamp: Self.dateValue(row)))
+            }
+            rows.sort {
+                ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast)
+            }
+            guard !rows.isEmpty else { return }
+
+            DispatchQueue.main.async {
+                let before = self.sqliteStore.stats().total
+                let merged = self.mergeHistory(rows)
+                let added = max(0, self.sqliteStore.stats().total - before)
+                self.pushV0xFF3Rows(rows, total: merged.count, reloadIfNeeded: false)
+                if added > 0 {
+                    self.recordEvent("SQLite 24/7: импортировано +\(added), всего \(merged.count)")
+                    if self.tabs.selectedSegmentIndex == 0 {
+                        let autoState = self.autoBotEnabled ? "ВКЛ" : "ВЫКЛ"
+                        self.status.text = "● SQLite 24/7 синхронизирована • \(merged.count) раундов • авто \(autoState)"
+                        self.status.textColor = .systemGreen
+                    }
+                }
+            }
+        }.resume()
     }
 
     private func acceptLiveRounds(_ fetched: [RoundSample]) {
