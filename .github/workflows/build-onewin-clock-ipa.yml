@@ -56,14 +56,14 @@ jobs:
           mkdir -p "$RUNNER_TEMP/Payload"
           cp -R "$APP_PATH" "$RUNNER_TEMP/Payload/"
           cd "$RUNNER_TEMP"
-          /usr/bin/zip -qry "$GITHUB_WORKSPACE/OneWinClock-BABEL-Fusion-v3.3-V0xFF3-SQLite-unsigned.ipa" Payload
-          test -s "$GITHUB_WORKSPACE/OneWinClock-BABEL-Fusion-v3.3-V0xFF3-SQLite-unsigned.ipa"
-          ls -lh "$GITHUB_WORKSPACE/OneWinClock-BABEL-Fusion-v3.3-V0xFF3-SQLite-unsigned.ipa"
+          /usr/bin/zip -qry "$GITHUB_WORKSPACE/OneWinClock-BABEL-Fusion-v3.4-V0xFF3-SQLite-unsigned.ipa" Payload
+          test -s "$GITHUB_WORKSPACE/OneWinClock-BABEL-Fusion-v3.4-V0xFF3-SQLite-unsigned.ipa"
+          ls -lh "$GITHUB_WORKSPACE/OneWinClock-BABEL-Fusion-v3.4-V0xFF3-SQLite-unsigned.ipa"
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: OneWinClock-BABEL-Fusion-v3.3-V0xFF3-SQLite-unsigned-IPA
-          path: OneWinClock-BABEL-Fusion-v3.3-V0xFF3-SQLite-unsigned.ipa
+          name: OneWinClock-BABEL-Fusion-v3.4-V0xFF3-SQLite-unsigned-IPA
+          path: OneWinClock-BABEL-Fusion-v3.4-V0xFF3-SQLite-unsigned.ipa
           if-no-files-found: error
           retention-days: 30
