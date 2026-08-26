@@ -267,11 +267,10 @@ private struct FusionCandidate {
 final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate {
     private let api = URL(string: "https://crash-gateway-grm-cr.100hp.app/history")!
     private let customerID = "077dee8d-c923-4c02-9bee-757573662e69"
-    // Private value is inserted only into the unsigned IPA after the cloud build.
     private let sessionID = "00000000-0000-4000-8000-000000000000"
     private let allPredictorURL = URL(string: "https://miuiproking.github.io/luckyjet-telegram-mini-app/index.html?v=20260823-3")!
     private let gameURL = URL(string: "https://1w-ftend.life/")!
-    private let v0xFF3URL = URL(string: "https://miuiproking.github.io/luckyjet-telegram-mini-app/v0xff3.html?v=20260825-4")!
+    private let v0xFF3URL = URL(string: "https://miuiproking.github.io/luckyjet-telegram-mini-app/v0xff3.html?v=20260826-5")!
 
     private let selectedTabKey = "onewinclock.selectedTab.v3"
     private let selectedModeKey = "onewinclock.selectedMode.v3"
@@ -804,6 +803,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private func acceptLiveRounds(_ fetched: [RoundSample]) {
         guard let newest = fetched.first else { return }
         let rounds = mergeHistory(fetched)
+        pushV0xFF3Rows(fetched, total: rounds.count, reloadIfNeeded: false)
         liveLabel.text = String(format: "LIVE %.2fx", newest.coefficient)
         liveLabel.textColor = .black
         liveLabel.backgroundColor = newest.coefficient >= 10
@@ -897,8 +897,13 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
 
     private func syncV0xFF3History() {
         guard v0xFF3WebView != nil else { return }
+        pushV0xFF3Rows(latestRounds, total: latestRounds.count, reloadIfNeeded: true)
+    }
+
+    private func pushV0xFF3Rows(_ sourceRows: [RoundSample], total: Int, reloadIfNeeded: Bool) {
+        guard v0xFF3WebView != nil, !sourceRows.isEmpty else { return }
         let now = Date().timeIntervalSince1970 * 1_000
-        let rows: [[String: Any]] = latestRounds.enumerated().map { index, round in
+        let rows: [[String: Any]] = sourceRows.enumerated().map { index, round in
             [
                 "id": round.id,
                 "coefficient": round.coefficient,
@@ -913,7 +918,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             let sessionJSON = String(data: sessionData, encoding: .utf8)
         else { return }
 
-        let fingerprint = "\(rows.count):\(latestRounds.first?.id ?? "empty")"
+        let fingerprint = "\(total):\(sourceRows.first?.id ?? "empty")"
         guard
             let fingerprintData = try? JSONSerialization.data(withJSONObject: fingerprint, options: .fragmentsAllowed),
             let fingerprintJSON = String(data: fingerprintData, encoding: .utf8)
@@ -925,6 +930,10 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
           const markerKey = 'v0xff3_native_sync_marker';
           const incoming = \(rowsJSON);
           localStorage.setItem('V0XFF3_LJ_SESSION_ID', \(sessionJSON));
+          if (typeof window.V0XFF3_NATIVE_PUSH === 'function') {
+            return window.V0XFF3_NATIVE_PUSH(incoming, {source:'NATIVE SQLITE', total:\(total)});
+          }
+          if (!\(reloadIfNeeded ? "true" : "false")) return {ok:false, waiting:true};
           let current = {rounds:[],signals:[],outcomes:[],wins:0,losses:0,auto:false,sound:true,lastFetch:0};
           try {
             const saved = JSON.parse(localStorage.getItem(storeKey) || 'null');
