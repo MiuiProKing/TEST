@@ -64,6 +64,10 @@ SESSION_ID = os.getenv(
     "V0XFF3_SESSION_ID",
     "00000000-0000-4000-8000-000000000000",
 ).strip()
+RELAY_URL = os.getenv(
+    "V0XFF3_RELAY_URL",
+    "https://xlidiojdbozxikjloiaj.supabase.co/functions/v1/v0xff3-live",
+).strip().rstrip("/")
 
 POLL_SEC = max(2, int(os.getenv("V0XFF3_POLL_SEC", "4")))
 TZ_NAME = os.getenv("V0XFF3_TZ", "Europe/Kyiv")
@@ -213,7 +217,7 @@ def first_present(d: Dict[str, Any], keys: Iterable[str]) -> Any:
     return None
 
 
-def normalize_round(item: Dict[str, Any]) -> Optional[Round]:
+def normalize_round(item: Dict[str, Any], fallback_ts: Optional[datetime] = None) -> Optional[Round]:
     rid = first_present(item, ["id", "round_id", "roundId", "_id", "gameId"])
     coeff = first_present(
         item,
@@ -237,7 +241,7 @@ def normalize_round(item: Dict[str, Any]) -> Optional[Round]:
     except Exception:
         return None
 
-    return Round(str(rid), c, parse_ts(ts))
+    return Round(str(rid), c, parse_ts(ts) if ts is not None else (fallback_ts or now()))
 
 
 def extract_items(data: Any) -> List[Dict[str, Any]]:
@@ -276,8 +280,11 @@ def fetch_history() -> List[Round]:
     data = r.json()
 
     out: List[Round] = []
-    for item in extract_items(data):
-        rr = normalize_round(item)
+    fetched_at = now()
+    for index, item in enumerate(extract_items(data)):
+        # LuckyJet returns the newest item first. Estimate absent timestamps so
+        # SQLite and the HTML page still agree on the actual latest round.
+        rr = normalize_round(item, fetched_at - timedelta(seconds=index * 12))
         if rr:
             out.append(rr)
 
@@ -286,15 +293,43 @@ def fetch_history() -> List[Round]:
 
 
 def save_round(rr: Round) -> bool:
-    try:
-        DB.execute(
-            "INSERT INTO rounds(round_id, coefficient, ts) VALUES(?,?,?)",
-            (rr.round_id, rr.coefficient, rr.ts.isoformat()),
-        )
-        DB.commit()
-        return True
-    except sqlite3.IntegrityError:
-        return False
+    cursor = DB.execute(
+        "INSERT OR IGNORE INTO rounds(round_id, coefficient, ts) VALUES(?,?,?)",
+        (rr.round_id, rr.coefficient, rr.ts.isoformat()),
+    )
+    inserted = cursor.rowcount > 0
+    DB.execute(
+        "UPDATE rounds SET coefficient=?, ts=? WHERE round_id=?",
+        (rr.coefficient, rr.ts.isoformat(), rr.round_id),
+    )
+    DB.commit()
+    return inserted
+
+
+def push_live_relay() -> None:
+    if not RELAY_URL:
+        return
+    response = requests.post(
+        RELAY_URL,
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "x-v0xff3-session": SESSION_ID,
+            "x-v0xff3-customer": CUSTOMER_ID,
+            "User-Agent": "V0xFF3-SQLite-Relay/3.0",
+        },
+        json={},
+        timeout=20,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not payload.get("ok"):
+        raise RuntimeError(str(payload.get("error") or "relay rejected"))
+    print(
+        f"[relay] SQLite online: received={payload.get('received', 0)} "
+        f"inserted={payload.get('inserted', 0)}",
+        flush=True,
+    )
 
 
 def load_rounds(limit: int = 5000) -> List[Round]:
@@ -585,6 +620,14 @@ def poll_loop() -> None:
                     f"last={last.coefficient:.2f}X id={last.round_id}",
                     flush=True,
                 )
+                try:
+                    push_live_relay()
+                except Exception as relay_error:
+                    print(
+                        f"[relay] {type(relay_error).__name__}: {relay_error}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
 
         except Exception as e:
             print(f"[poll] {type(e).__name__}: {e}", file=sys.stderr, flush=True)
@@ -701,6 +744,7 @@ def main() -> None:
     print(f"DB: {DB_FILE}")
     print(f"TZ: {TZ_NAME}")
     print(f"History: {HISTORY_URL or 'NOT SET'}")
+    print(f"Relay: {RELAY_URL or 'DISABLED'}")
 
     if not HISTORY_URL:
         print(
