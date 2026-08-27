@@ -57,14 +57,14 @@ jobs:
           mkdir -p "$RUNNER_TEMP/Payload"
           cp -R "$APP_PATH" "$RUNNER_TEMP/Payload/"
           cd "$RUNNER_TEMP"
-          /usr/bin/zip -qry "$GITHUB_WORKSPACE/KIBORG_V2-v3.5-SERVER-SQLite-unsigned.ipa" Payload
-          test -s "$GITHUB_WORKSPACE/KIBORG_V2-v3.5-SERVER-SQLite-unsigned.ipa"
-          ls -lh "$GITHUB_WORKSPACE/KIBORG_V2-v3.5-SERVER-SQLite-unsigned.ipa"
+          /usr/bin/zip -qry "$GITHUB_WORKSPACE/KIBORG_V2-v3.6-SIGNALS-SQLite-unsigned.ipa" Payload
+          test -s "$GITHUB_WORKSPACE/KIBORG_V2-v3.6-SIGNALS-SQLite-unsigned.ipa"
+          ls -lh "$GITHUB_WORKSPACE/KIBORG_V2-v3.6-SIGNALS-SQLite-unsigned.ipa"
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: KIBORG_V2-v3.5-SERVER-SQLite-unsigned-IPA
-          path: KIBORG_V2-v3.5-SERVER-SQLite-unsigned.ipa
+          name: KIBORG_V2-v3.6-SIGNALS-SQLite-unsigned-IPA
+          path: KIBORG_V2-v3.6-SIGNALS-SQLite-unsigned.ipa
           if-no-files-found: error
           retention-days: 30
