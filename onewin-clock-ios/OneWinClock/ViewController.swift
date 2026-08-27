@@ -271,7 +271,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private let sessionID = "00000000-0000-0000-0000-000000000000"
     private let allPredictorURL = URL(string: "https://miuiproking.github.io/luckyjet-telegram-mini-app/index.html?v=20260823-3")!
     private let gameURL = URL(string: "https://1w-ftend.life/")!
-    private let v0xFF3URL = URL(string: "https://miuiproking.github.io/luckyjet-telegram-mini-app/v0xff3.html?v=20260826-5")!
+    private let v0xFF3URL = URL(string: "https://miuiproking.github.io/luckyjet-telegram-mini-app/v0xff3.html?v=20260827-6")!
 
     private let selectedTabKey = "onewinclock.selectedTab.v3"
     private let selectedModeKey = "onewinclock.selectedMode.v4"
