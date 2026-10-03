@@ -19,23 +19,36 @@ struct WebCatalog: Codable {
 }
 
 
-// Keep a bounded set of opened pages. Cookies use the persistent WK data store;
-// page history and scroll position survive switches while a page is resident.
+// Keep every explicitly opened page until the user closes it. Park inactive
+// WKWebViews in the visible app window, under an opaque cover, rather than
+// removing them from the window or setting isHidden/alpha to hide their content.
 final class WebBrowserPool {
     private var browsers: [String: ManagedBrowserController] = [:]
-    private var recent: [String] = []
-    func browser(for source: WebSource, group: WebGroup) -> ManagedBrowserController {
-        let browser = browsers[source.id] ?? ManagedBrowserController(source:source,group:group)
-        browser.resumeHomeIfNeeded()
-        browsers[source.id] = browser
-        recent.removeAll { $0 == source.id }; recent.insert(source.id,at:0)
-        while recent.count > 4 { browsers.removeValue(forKey:recent.removeLast()) }
+    private let parkingHost = UIView()
+    private let cover = UIView()
+    var openedCount: Int { browsers.keys.filter { !$0.hasPrefix("embedded.") }.count }
+    func isOpen(_ id: String) -> Bool { browsers[id] != nil }
+    func install(in window: UIWindow) {
+        guard parkingHost.superview == nil else { return }
+        parkingHost.frame = window.bounds; parkingHost.autoresizingMask = [.flexibleWidth,.flexibleHeight]
+        parkingHost.isUserInteractionEnabled = false; parkingHost.accessibilityElementsHidden = true
+        parkingHost.clipsToBounds = true; parkingHost.backgroundColor = .black
+        cover.frame = parkingHost.bounds; cover.autoresizingMask = [.flexibleWidth,.flexibleHeight]
+        cover.backgroundColor = .black; cover.isUserInteractionEnabled = false
+        parkingHost.addSubview(cover); window.insertSubview(parkingHost,at:0)
+    }
+    func browser(for source: WebSource, group: WebGroup, instanceKey: String? = nil) -> ManagedBrowserController {
+        let key = instanceKey ?? source.id
+        let browser = browsers[key] ?? ManagedBrowserController(source:source,group:group)
+        browser.resumeHomeIfNeeded(); browsers[key] = browser
+        browser.onLeave = { [weak self] browser in self?.park(browser) }
         return browser
     }
-    func releaseInactive() {
-        guard let current = recent.first else { return }
-        browsers = browsers.filter { $0.key == current }; recent = [current]
+    func park(_ browser: ManagedBrowserController) {
+        guard parkingHost.window != nil, browsers.values.contains(where: { $0 === browser }) else { return }
+        browser.parkPage(in:parkingHost)
     }
+    func close(_ id: String) { browsers.removeValue(forKey:id)?.closePage() }
 }
 
 final class WebSourcesController: UITableViewController, UISearchResultsUpdating {
@@ -49,6 +62,7 @@ final class WebSourcesController: UITableViewController, UISearchResultsUpdating
     private var auditTimer: Timer?
     private var auditResults: [String: Bool] = [:]
     private var auditInitialBrowser: ManagedBrowserController?
+    private var auditLiveDetails: [String: Any] = [:]
     #endif
     private let search = UISearchController(searchResultsController:nil)
     private var groups: [WebGroup] {
@@ -87,8 +101,7 @@ final class WebSourcesController: UITableViewController, UISearchResultsUpdating
         if ProcessInfo.processInfo.arguments.contains("--audit-navigation") { startNavigationAudit() }
         #endif
     }
-    override func viewWillAppear(_ animated: Bool) { super.viewWillAppear(animated); tableView.reloadData() }
-    override func didReceiveMemoryWarning() { super.didReceiveMemoryWarning(); pool.releaseInactive() }
+    override func viewWillAppear(_ animated: Bool) { super.viewWillAppear(animated); title = "WEB • Открыто \(pool.openedCount)"; tableView.reloadData() }
     deinit {
         session.invalidateAndCancel()
         #if DEBUG
@@ -122,7 +135,7 @@ final class WebSourcesController: UITableViewController, UISearchResultsUpdating
     }
     override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
         if section == groups.count {
-            return settingsExpanded ? "API и WEB выбираются независимо. SESSION хранится в Keychain. HTTP 200 не подтверждает прогнозы сайта." : (groups.isEmpty ? "Ничего не найдено. Измените поиск." : "Нажмите сайт, чтобы открыть. Кнопка ⓘ — адрес и проверка. Потяните список вниз для проверки доступности.")
+            return settingsExpanded ? "API и WEB выбираются независимо. SESSION хранится в Keychain. HTTP 200 не подтверждает прогнозы сайта." : (groups.isEmpty ? "Ничего не найдено. Измените поиск." : "Открытые страницы продолжают выполнять задачи, пока приложение активно. ⓘ — адрес, проверка и закрытие страницы. При блокировке телефона iOS может приостановить работу.")
         }
         return nil
     }
@@ -145,7 +158,7 @@ final class WebSourcesController: UITableViewController, UISearchResultsUpdating
             cell.textLabel?.text = source.name
             let host = URL(string:source.url)?.host ?? source.url
             let status = checks[source.id]?.components(separatedBy:" • ").first ?? "Не проверен"
-            cell.detailTextLabel?.text = "\(active ? "✓ Выбран • " : "")\(host)\n\(status)"
+            cell.detailTextLabel?.text = "\(pool.isOpen(source.id) ? "● Открыт • " : "")\(active ? "✓ Выбран • " : "")\(host)\n\(status)"
             cell.accessoryType = .detailButton
             cell.accessibilityIdentifier = "web.site." + source.id
             cell.accessibilityHint = "Открыть сайт. Дополнительная кнопка показывает адрес и проверку."
@@ -179,6 +192,12 @@ final class WebSourcesController: UITableViewController, UISearchResultsUpdating
         menu.addAction(UIAlertAction(title:"Обновить страницу",style:.default) { [weak self] _ in
             guard let self else { return }; self.open(source,group:group); self.pool.browser(for:source,group:group).refreshPage()
         })
+        if pool.isOpen(source.id) {
+            menu.addAction(UIAlertAction(title:"Закрыть эту страницу",style:.destructive) { [weak self] _ in
+                guard let self else { return }; self.pool.close(source.id)
+                self.title = "WEB • Открыто \(self.pool.openedCount)"; self.tableView.reloadData()
+            })
+        }
         menu.addAction(UIAlertAction(title:"Отмена",style:.cancel)); anchor(menu,indexPath:indexPath); present(menu,animated:true)
     }
     private func anchor(_ menu: UIAlertController, indexPath: IndexPath? = nil) {
@@ -226,7 +245,7 @@ final class WebSourcesController: UITableViewController, UISearchResultsUpdating
         browser.onClose = { [weak self] in self?.close() }
         if navigationController?.topViewController === self { navigationController?.pushViewController(browser,animated:true) }
         else { navigationController?.setViewControllers([self,browser],animated:false) }
-        tableView.reloadData()
+        title = "WEB • Открыто \(pool.openedCount)"; tableView.reloadData()
     }
     private func check(_ source: WebSource) {
         guard tasks[source.id] == nil, let url = URL(string:source.url) else { return }
@@ -285,11 +304,14 @@ final class ManagedBrowserController: UIViewController, WKNavigationDelegate, WK
     var onSites: (() -> Void)?
     var onSwitch: ((WebSource,WebGroup) -> Void)?
     var onClose: (() -> Void)?
+    var onLeave: ((ManagedBrowserController) -> Void)?
     var homeURL: String { homeSource.url }
     func resumeHomeIfNeeded() { if isViewLoaded && source.id != homeSource.id { home() } }
     func navigateBack() { back() }
     func refreshPage() { loadViewIfNeeded(); reload() }
     private let web: WKWebView
+    private let pageContainer = UIView()
+    private var pageConstraints: [NSLayoutConstraint] = []
     private let spinner = UIActivityIndicatorView(style:.large)
     private let errorPanel = UIStackView()
     private let sourceButton = UIButton(type:.system)
@@ -300,12 +322,22 @@ final class ManagedBrowserController: UIViewController, WKNavigationDelegate, WK
     private var observations: [NSKeyValueObservation] = []
     private var fallbackTried = Set<String>()
     private var timeout: DispatchWorkItem?
+    #if DEBUG
+    fileprivate var auditTickCount = 0
+    fileprivate var auditDocumentHidden = true
+    #endif
     private var availableGroups: [WebGroup] { onSwitch == nil ? [group] : WebCatalog.load().groups }
     init(source: WebSource, group: WebGroup) {
         self.source = source; homeSource = source; self.group = group
         let c = WKWebViewConfiguration(); c.websiteDataStore = .default(); c.allowsInlineMediaPlayback = true
+        if #available(iOS 17.0, *) { c.preferences.inactiveSchedulingPolicy = .none }
         web = WKWebView(frame:.zero,configuration:c)
         super.init(nibName:nil,bundle:nil)
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--audit-navigation") {
+            c.userContentController.add(WeakWebMessageHandler(self),name:"backgroundTick")
+        }
+        #endif
     }
     required init?(coder: NSCoder) { fatalError("init(coder:)") }
     deinit { timeout?.cancel(); web.stopLoading() }
@@ -354,16 +386,20 @@ final class ManagedBrowserController: UIViewController, WKNavigationDelegate, WK
             button.accessibilityLabel = title == "Назад" ? "Назад внутри страницы" : (title == "Сайты" ? "Вернуться к списку сайтов" : title)
             button.addTarget(self,action:selector,for:.touchUpInside); toolbar.addArrangedSubview(button)
         }
-        let sections: [UIView] = [heading,web,toolbar]
+        let sections: [UIView] = [heading,pageContainer,toolbar]
         for item in sections { item.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(item) }
         NSLayoutConstraint.activate([
             heading.topAnchor.constraint(equalTo:view.safeAreaLayoutGuide.topAnchor),heading.leadingAnchor.constraint(equalTo:view.leadingAnchor),heading.trailingAnchor.constraint(equalTo:view.trailingAnchor),
             toolbar.leadingAnchor.constraint(equalTo:view.safeAreaLayoutGuide.leadingAnchor,constant:6),toolbar.trailingAnchor.constraint(equalTo:view.safeAreaLayoutGuide.trailingAnchor,constant:-6),
             toolbar.bottomAnchor.constraint(equalTo:view.safeAreaLayoutGuide.bottomAnchor,constant:-4),toolbar.heightAnchor.constraint(equalToConstant:58),
-            web.topAnchor.constraint(equalTo:heading.bottomAnchor),web.leadingAnchor.constraint(equalTo:view.leadingAnchor),web.trailingAnchor.constraint(equalTo:view.trailingAnchor),web.bottomAnchor.constraint(equalTo:toolbar.topAnchor,constant:-4)
+            pageContainer.topAnchor.constraint(equalTo:heading.bottomAnchor),pageContainer.leadingAnchor.constraint(equalTo:view.leadingAnchor),pageContainer.trailingAnchor.constraint(equalTo:view.trailingAnchor),pageContainer.bottomAnchor.constraint(equalTo:toolbar.topAnchor,constant:-4)
         ])
+        web.translatesAutoresizingMaskIntoConstraints = false
+        pageContainer.addSubview(web)
+        pageConstraints = [web.topAnchor.constraint(equalTo:pageContainer.topAnchor),web.bottomAnchor.constraint(equalTo:pageContainer.bottomAnchor),web.leadingAnchor.constraint(equalTo:pageContainer.leadingAnchor),web.trailingAnchor.constraint(equalTo:pageContainer.trailingAnchor)]
+        NSLayoutConstraint.activate(pageConstraints)
         spinner.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(spinner)
-        NSLayoutConstraint.activate([spinner.centerXAnchor.constraint(equalTo:web.centerXAnchor),spinner.centerYAnchor.constraint(equalTo:web.centerYAnchor)])
+        NSLayoutConstraint.activate([spinner.centerXAnchor.constraint(equalTo:pageContainer.centerXAnchor),spinner.centerYAnchor.constraint(equalTo:pageContainer.centerYAnchor)])
         errorPanel.axis = .vertical; errorPanel.spacing = 20; errorPanel.backgroundColor = .systemBackground
         let label = UILabel(); label.text = "Сайт временно недоступен\nМожно повторить загрузку или выбрать другой сайт сверху."; label.textAlignment = .center; label.numberOfLines = 0
         errorPanel.addArrangedSubview(label)
@@ -371,15 +407,37 @@ final class ManagedBrowserController: UIViewController, WKNavigationDelegate, WK
             let button = UIButton(type:.system); button.setTitle(title,for:.normal); button.addTarget(self,action:action,for:.touchUpInside); errorPanel.addArrangedSubview(button)
         }
         errorPanel.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(errorPanel); errorPanel.isHidden = true
-        NSLayoutConstraint.activate([errorPanel.centerYAnchor.constraint(equalTo:web.centerYAnchor),errorPanel.leadingAnchor.constraint(equalTo:view.leadingAnchor,constant:16),errorPanel.trailingAnchor.constraint(equalTo:view.trailingAnchor,constant:-16)])
+        NSLayoutConstraint.activate([errorPanel.centerYAnchor.constraint(equalTo:pageContainer.centerYAnchor),errorPanel.leadingAnchor.constraint(equalTo:view.leadingAnchor,constant:16),errorPanel.trailingAnchor.constraint(equalTo:view.trailingAnchor,constant:-16)])
         observations = [web.observe(\.canGoBack,options:[.new]) { [weak self] _,_ in self?.updateControls() },
                         web.observe(\.canGoForward,options:[.new]) { [weak self] _,_ in self?.updateControls() },
                         web.observe(\.url,options:[.new]) { [weak self] _,_ in self?.updateControls() }]
         updatePicker(); updateControls(); load()
     }
     override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated); updatePicker(); updateControls()
+        super.viewWillAppear(animated); attachPage(); updatePicker(); updateControls()
         navigationItem.rightBarButtonItem = onClose == nil ? nil : UIBarButtonItem(title:"Готово",style:.done,target:self,action:#selector(closeBrowser))
+    }
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated); onLeave?(self)
+    }
+    func attachPage() {
+        guard isViewLoaded, web.superview !== pageContainer else { return }
+        web.removeFromSuperview(); web.translatesAutoresizingMaskIntoConstraints = false
+        web.isHidden = false; web.alpha = 1; web.isUserInteractionEnabled = true; web.accessibilityElementsHidden = false
+        pageContainer.addSubview(web); NSLayoutConstraint.activate(pageConstraints)
+    }
+    func parkPage(in host: UIView) {
+        guard isViewLoaded, web.superview !== host else { return }
+        let size = web.bounds.size
+        NSLayoutConstraint.deactivate(pageConstraints); web.removeFromSuperview()
+        web.translatesAutoresizingMaskIntoConstraints = true; web.autoresizingMask = []
+        web.frame = CGRect(origin:.zero,size:size.width > 0 && size.height > 0 ? size : host.bounds.size)
+        web.isHidden = false; web.alpha = 1; web.isUserInteractionEnabled = false; web.accessibilityElementsHidden = true
+        host.insertSubview(web,at:0)
+    }
+    func closePage() {
+        timeout?.cancel(); web.stopLoading(); web.loadHTMLString("",baseURL:nil)
+        NSLayoutConstraint.deactivate(pageConstraints); web.removeFromSuperview()
     }
     private func updatePicker() {
         let menus = availableGroups.map { group in
@@ -428,7 +486,7 @@ final class ManagedBrowserController: UIViewController, WKNavigationDelegate, WK
             let directory = FileManager.default.urls(for:.documentDirectory,in:.userDomainMask)[0].appendingPathComponent("web-audit")
             try? FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true)
             let file = directory.appendingPathComponent(source.id + ".html")
-            try? "<html><meta charset='utf-8'><meta name='viewport' content='width=device-width'><body style='background:#101827;color:white;font:22px -apple-system;padding:24px'><h1>\(source.name)</h1><p>Локальная проверка WEB-навигации</p><a href='detail.html'>Открыть следующую страницу</a><div style='height:1600px'></div></body></html>".write(to:file,atomically:true,encoding:.utf8)
+            try? "<html><meta charset='utf-8'><meta name='viewport' content='width=device-width'><body style='background:#101827;color:white;font:22px -apple-system;padding:24px'><h1>\(source.name)</h1><p>Локальная проверка WEB-навигации</p><a href='detail.html'>Открыть следующую страницу</a><div style='height:1600px'></div><script>let auditCounter=0;setInterval(()=>window.webkit.messageHandlers.backgroundTick.postMessage({tick:++auditCounter,hidden:document.hidden}),1000)</script></body></html>".write(to:file,atomically:true,encoding:.utf8)
             try? "<html><meta charset='utf-8'><meta name='viewport' content='width=device-width'><body style='background:#101827;color:white;font:22px -apple-system;padding:24px'><h1>Вторая страница</h1><p>Кнопка «Назад» возвращает внутри сайта.</p></body></html>".write(to:directory.appendingPathComponent("detail.html"),atomically:true,encoding:.utf8)
             web.loadFileURL(file,allowingReadAccessTo:directory); return
         }
@@ -506,7 +564,7 @@ extension WebSourcesController {
     private var auditDirectory: URL { FileManager.default.urls(for:.documentDirectory,in:.userDomainMask)[0] }
     private func auditWrite(_ stage: String, _ result: Bool) {
         auditResults[stage] = result
-        let data = try! JSONSerialization.data(withJSONObject:["stage":stage,"checks":auditResults],options:[.prettyPrinted,.sortedKeys])
+        let data = try! JSONSerialization.data(withJSONObject:["stage":stage,"checks":auditResults,"live_details":auditLiveDetails],options:[.prettyPrinted,.sortedKeys])
         try? data.write(to:auditDirectory.appendingPathComponent("navigation-audit.json"),options:.atomic)
     }
     private func startNavigationAudit() {
@@ -579,7 +637,32 @@ extension WebSourcesController {
             guard let win = catalog.groups.first(where: { $0.name == "1WIN" }), let main = win.sources.first else { auditWrite("reserve-home",false); return }
             current?.auditChoose(main,group:win)
             auditWait(browser:navigationController?.topViewController as? ManagedBrowserController,file:main.id + ".html",stage:"reserve-home")
+        case "live-switch":
+            open(first,group:group); open(group.sources[1],group:group)
+            auditLive(stage:"live-switch") {}
+        case "live-many":
+            auditLive(stage:"live-many") {
+                for destination in group.sources.prefix(6).dropFirst(2) { self.open(destination,group:group) }
+            }
+        case "live-sites":
+            auditLive(stage:"live-sites") { current?.auditSites() }
+        case "live-close-web":
+            auditLive(stage:"live-close-web") { self.close() }
         default: auditWrite(command,false)
+        }
+    }
+    private func auditLive(stage: String, action: () -> Void) {
+        guard let group = catalog.groups.first, group.sources.count > 1 else { auditWrite(stage,false); return }
+        let first = pool.browser(for:group.sources[0],group:group), second = pool.browser(for:group.sources[1],group:group)
+        let before = [first.auditTickCount,second.auditTickCount]
+        action()
+        DispatchQueue.main.asyncAfter(deadline:.now()+6) { [self] in
+            let delta = [first.auditTickCount-before[0],second.auditTickCount-before[1]]
+            let attached = first.auditWindowAttached && second.auditWindowAttached
+            let visibleState = !first.auditDocumentHidden && !second.auditDocumentHidden
+            let retained = stage != "live-many" || (pool.openedCount >= 6 && first === auditInitialBrowser)
+            auditLiveDetails[stage] = ["ticks_in_six_seconds":delta,"attached_to_window":attached,"document_visible":visibleState,"opened_pages":pool.openedCount,"application_active":UIApplication.shared.applicationState == .active]
+            auditWrite(stage,delta.allSatisfy { $0 >= 2 } && attached && visibleState && retained)
         }
     }
     private func auditWait(browser: ManagedBrowserController?, file: String, stage: String, attempts: Int = 80, extra: @escaping () -> Bool = { true }) {
@@ -612,4 +695,16 @@ extension ManagedBrowserController {
         web.evaluateJavaScript("window.kiborgNavigationMarker==='preserved' && window.scrollY>=100") { value,error in completion(error == nil && value as? Bool == true) }
     }
 }
+#endif
+
+#if DEBUG
+private final class WeakWebMessageHandler: NSObject, WKScriptMessageHandler {
+    weak var target: ManagedBrowserController?
+    init(_ target: ManagedBrowserController) { self.target = target }
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == "backgroundTick", let body = message.body as? [String:Any], let tick = body["tick"] as? Int else { return }
+        target?.auditTickCount = tick; target?.auditDocumentHidden = body["hidden"] as? Bool ?? true
+    }
+}
+extension ManagedBrowserController { fileprivate var auditWindowAttached: Bool { web.window != nil } }
 #endif

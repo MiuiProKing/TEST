@@ -11,6 +11,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         let window = UIWindow(frame: UIScreen.main.bounds)
         window.rootViewController = ViewController()
         window.makeKeyAndVisible()
+        (window.rootViewController as? ViewController)?.installWebHosting(in:window)
         self.window = window
         return true
     }

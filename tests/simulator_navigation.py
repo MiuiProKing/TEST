@@ -20,14 +20,14 @@ def wait(stage):
     raise TimeoutError('Navigation audit did not reach '+stage)
 
 wait('list')
-for stage in ['list','open','detail','back','forward','reload','home','switch','restore','picker','sites','search','settings','reserve','reserve-home']:
+for stage in ['list','open','detail','back','forward','reload','home','switch','restore','picker','sites','search','settings','reserve','reserve-home','live-switch','live-many','live-sites','live-close-web']:
     if stage!='list':
         (documents/'navigation-command.txt').write_text(stage)
         report=wait(stage)
     time.sleep(.7) # Let UIKit finish layout/animations before capturing the screen.
-    if stage in ['list','open','detail','switch','restore','sites','search','settings']:
+    if stage in ['list','open','detail','switch','restore','sites','search','settings','live-sites','live-close-web']:
         subprocess.run(['xcrun','simctl','io',device,'screenshot',str(evidence/(stage+'.png'))],check=True)
-report=wait('reserve-home')
+report=wait('live-close-web')
 (evidence/'navigation-audit.json').write_text(json.dumps(report,ensure_ascii=False,indent=2))
-assert len(report['checks'])==15,report
-print('PASS: 15 WEB navigation checks (local fixtures), including retained DOM/scroll, history and reserve switching.')
+assert len(report['checks'])==19,report
+print('PASS: 19 WEB navigation/live checks (local fixtures), including retained DOM/scroll, history and reserve switching.')

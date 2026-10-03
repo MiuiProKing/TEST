@@ -6,7 +6,7 @@ on:
     branches:
       - main
       - onewin-kiborg-v2-server-sqlite
-      - kiborg-v3.8-web-navigation
+      - kiborg-v3.9-live-tabs
     paths:
       - 'onewin-clock-ios/**'
       - '.github/workflows/build-onewin-clock-ipa.yml'
@@ -71,15 +71,15 @@ jobs:
           mkdir -p "$RUNNER_TEMP/Payload"
           cp -R "$APP_PATH" "$RUNNER_TEMP/Payload/"
           cd "$RUNNER_TEMP"
-          /usr/bin/zip -qry "$GITHUB_WORKSPACE/KIBORG_V2-v3.8-SOURCES-WEB-SQLite-unsigned.ipa" Payload
-          test -s "$GITHUB_WORKSPACE/KIBORG_V2-v3.8-SOURCES-WEB-SQLite-unsigned.ipa"
-          ls -lh "$GITHUB_WORKSPACE/KIBORG_V2-v3.8-SOURCES-WEB-SQLite-unsigned.ipa"
+          /usr/bin/zip -qry "$GITHUB_WORKSPACE/KIBORG_V2-v3.9-SOURCES-WEB-SQLite-unsigned.ipa" Payload
+          test -s "$GITHUB_WORKSPACE/KIBORG_V2-v3.9-SOURCES-WEB-SQLite-unsigned.ipa"
+          ls -lh "$GITHUB_WORKSPACE/KIBORG_V2-v3.9-SOURCES-WEB-SQLite-unsigned.ipa"
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: KIBORG_V2-v3.8-SOURCES-WEB-SQLite-unsigned-IPA
-          path: KIBORG_V2-v3.8-SOURCES-WEB-SQLite-unsigned.ipa
+          name: KIBORG_V2-v3.9-SOURCES-WEB-SQLite-unsigned-IPA
+          path: KIBORG_V2-v3.9-SOURCES-WEB-SQLite-unsigned.ipa
           if-no-files-found: error
           retention-days: 30
 
@@ -111,7 +111,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: KIBORG-v3.8-simulator-evidence
+          name: KIBORG-v3.9-simulator-evidence
           path: |
             kiborg-simulator.png
             kiborg-relaunch.png

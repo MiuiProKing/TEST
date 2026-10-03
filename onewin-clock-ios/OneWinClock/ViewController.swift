@@ -253,6 +253,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        if let window = view.window { webBrowserPool.install(in:window) }
         #if DEBUG
         if !auditPresented && (ProcessInfo.processInfo.arguments.contains("--audit-web") || ProcessInfo.processInfo.arguments.contains("--audit-navigation")) {
             auditPresented = true
@@ -260,11 +261,14 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         }
         #endif
         if let browser = gameBrowser, browser.homeURL != gameURL.absoluteString {
+            webBrowserPool.park(browser)
             browser.willMove(toParent: nil); browser.view.removeFromSuperview(); browser.removeFromParent()
             gameBrowser = nil
             applySelectedTab()
         }
     }
+
+    func installWebHosting(in window: UIWindow) { webBrowserPool.install(in:window) }
 
     override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
 
@@ -639,6 +643,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         configuration.websiteDataStore = .default()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
+        if #available(iOS 17.0, *) { configuration.preferences.inactiveSchedulingPolicy = .none }
         configuration.allowsInlineMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = []
 
@@ -813,7 +818,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 let catalog = WebCatalog.load()
                 if let group = catalog.groups.first(where: { $0.name == "1WIN" }),
                    let source = group.sources.first(where: { $0.url == gameURL.absoluteString }) ?? group.sources.first {
-                    let browser = ManagedBrowserController(source: source, group: group)
+                    let browser = webBrowserPool.browser(for: source, group: group, instanceKey: "embedded." + source.id)
                     browser.onSites = { [weak self] in self?.openWEB() }
                     addChild(browser)
                     browser.view.translatesAutoresizingMaskIntoConstraints = false
@@ -830,6 +835,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             }
             if let browser = gameBrowser { webContainer.bringSubviewToFront(browser.view) }
         }
+        if let browser = gameBrowser { if isGame { browser.attachPage() } else { webBrowserPool.park(browser) } }
         gameBrowser?.view.isHidden = !isGame
         if isV0xFF3 {
             webContainer.bringSubviewToFront(v0xFF3WebView)
@@ -1072,6 +1078,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     @objc private func openWEB() {
         let controller = WebSourcesController(manager: sources, pool: webBrowserPool)
         let navigation = UINavigationController(rootViewController: controller)
+        navigation.overrideUserInterfaceStyle = .dark
         navigation.modalPresentationStyle = .fullScreen
         present(navigation, animated: true)
     }
