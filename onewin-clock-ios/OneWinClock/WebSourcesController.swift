@@ -33,7 +33,7 @@ final class WebSourcesController: UITableViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         checks = UserDefaults.standard.dictionary(forKey:"kiborg.web.health") as? [String:String] ?? [:]
-        title = "📌 WEB / Источники"
+        title = "📌 WEB"
         overrideUserInterfaceStyle = .dark
         navigationItem.rightBarButtonItem = UIBarButtonItem(title:"Готово",style:.done,target:self,action:#selector(close))
         navigationItem.leftBarButtonItem = UIBarButtonItem(title:"Обновить",style:.plain,target:self,action:#selector(refresh))
@@ -64,7 +64,10 @@ final class WebSourcesController: UITableViewController {
         cell.accessoryType = .disclosureIndicator
         if indexPath.section == 0 {
             switch indexPath.row {
-            case 0: cell.textLabel?.text = "API: \(manager.selection)"; cell.detailTextLabel?.text = manager.summary()
+            case 0:
+                cell.textLabel?.text = "API: \(manager.selection)"
+                let h = manager.health[manager.activeID] ?? SourceHealth()
+                cell.detailTextLabel?.text = "\(manager.activeID.uppercased()) • \(h.status) • \(Int(h.latency*1000))ms\nНажмите: переключение / статус всех API"
             case 1: cell.textLabel?.text = "SESSION • свой session-id"; cell.detailTextLabel?.text = SessionVault.value.isEmpty ? "Не настроен • прямой API требует входа" : "Сохранён в Keychain • значение скрыто"
             default: cell.textLabel?.text = "1WIN: \(UserDefaults.standard.bool(forKey:"kiborg.1win.auto") ? "AUTO" : "РУЧНОЙ")"; cell.detailTextLabel?.text = "Включить / выключить автоматический резерв"
             }
@@ -118,6 +121,10 @@ final class WebSourcesController: UITableViewController {
         menu.addAction(UIAlertAction(title:"Проверить выбранный",style:.default) { [weak self] _ in
             guard let self else { return }; self.manager.fetch(force:true,only:self.manager.selection == "AUTO" ? "main" : self.manager.selection) { _ in self.tableView.reloadData() }
         })
+        menu.addAction(UIAlertAction(title:"Статус всех API",style:.default) { [weak self] _ in
+            guard let self else { return }
+            self.navigationController?.pushViewController(APIHealthController(manager:self.manager),animated:true)
+        })
         menu.addAction(UIAlertAction(title:"Отмена",style:.cancel)); anchor(menu); present(menu,animated:true)
     }
     private func setSession() {
@@ -155,6 +162,32 @@ final class WebSourcesController: UITableViewController {
             }
         }
         tasks[source.id] = task; task.resume()
+    }
+}
+
+final class APIHealthController: UITableViewController {
+    private let manager: SourceManager
+    init(manager: SourceManager) { self.manager = manager; super.init(style:.insetGrouped) }
+    required init?(coder: NSCoder) { fatalError("init(coder:)") }
+    override func viewDidLoad() { super.viewDidLoad(); title = "Статус API" }
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { manager.config.sources.count }
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let source = manager.config.sources[indexPath.row]
+        let h = manager.health[source.id] ?? SourceHealth()
+        let cell = UITableViewCell(style:.subtitle,reuseIdentifier:nil)
+        cell.textLabel?.text = (manager.activeID == source.id ? "✅ " : "") + source.name
+        cell.textLabel?.numberOfLines = 0; cell.detailTextLabel?.numberOfLines = 0
+        let formatter = DateFormatter(); formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        let success = h.lastSuccess.map { formatter.string(from:$0) } ?? "NOT VERIFIED"
+        let fresh = h.lastNewRound.map { formatter.string(from:$0) } ?? "NOT VERIFIED"
+        cell.detailTextLabel?.text = "\(source.url)\n\(h.status) • HTTP \(h.httpStatus.map(String.init) ?? "—") • \(Int(h.latency*1000))ms\nУспешный ответ: \(success)\nНовый ID: \(fresh)\n\(h.lastError ?? "Нажмите для проверки")"
+        return cell
+    }
+    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at:indexPath,animated:true)
+        let source = manager.config.sources[indexPath.row]
+        guard source.enabled, source.type != "cache" else { return }
+        manager.fetch(force:true,only:source.id) { [weak self] _ in self?.tableView.reloadData() }
     }
 }
 

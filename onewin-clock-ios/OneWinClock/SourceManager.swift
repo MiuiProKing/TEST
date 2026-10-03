@@ -98,7 +98,13 @@ final class SourceManager {
             c.requestCachePolicy = .reloadIgnoringLocalCacheData
             self.session = URLSession(configuration: c)
         }
-        for s in config.sources { health[s.id] = SourceHealth() }
+        for s in config.sources {
+            var h = SourceHealth()
+            h.lastError = "Ещё не проверен на устройстве"
+            if s.type == "api_key" { h.status = "AUTH_REQUIRED"; h.lastError = "Отключён • необходим свой API key" }
+            if s.type == "session" && SessionVault.value.isEmpty { h.status = "AUTH_REQUIRED"; h.lastError = "Не задан свой SESSION" }
+            health[s.id] = h
+        }
         if monitorNetwork {
             monitor.pathUpdateHandler = { [weak self] path in
                 DispatchQueue.main.async {
@@ -116,7 +122,11 @@ final class SourceManager {
         }
     }
     deinit { monitor.cancel(); task?.cancel() }
-    func setCache(_ rows: [RoundSample]) { cache = rows }
+    func setCache(_ rows: [RoundSample]) {
+        cache = rows
+        health["local"]?.status = rows.isEmpty ? "OFFLINE" : "ONLINE"
+        health["local"]?.lastError = rows.isEmpty ? "Кеш пуст" : nil
+    }
     func reset() {
         generation += 1
         task?.cancel(); task = nil
@@ -240,6 +250,7 @@ final class SourceManager {
                     let delivered = Array((all + old.filter { !ids.contains($0.id) }).prefix(5000))
                     self.histories[source.id] = delivered
                     self.activeID = source.id; self.lastDeliveryCached = false; self.cache = delivered
+                    self.health["local"]?.status = "ONLINE"; self.health["local"]?.lastError = nil
                     if full { self.lastFull[source.id] = Date() }
                     self.finish(.success(delivered),generation:g)
                 }
