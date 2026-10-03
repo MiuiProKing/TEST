@@ -208,7 +208,9 @@ final class WebSourcesController: UITableViewController, UISearchResultsUpdating
         guard source.enabled else { return }
         search.isActive = false
         UserDefaults.standard.set(source.id,forKey:"kiborg.web.selected."+group.name)
-        let browser = pool.browser(for:source,group:group)
+        // Search narrows visible rows, never the list of fallback sites.
+        let completeGroup = catalog.groups.first { $0.name == group.name } ?? group
+        let browser = pool.browser(for:source,group:completeGroup)
         browser.onSites = { [weak self] in
             guard let self else { return }; self.navigationController?.popToViewController(self,animated:true)
         }
@@ -376,7 +378,7 @@ final class ManagedBrowserController: UIViewController, WKNavigationDelegate, WK
                 UIAction(title:destination.name,state:destination.id == source.id ? .on : .off) { [weak self] _ in self?.switchTo(destination,group:group) }
             })
         }
-        sourceButton.setTitle(source.name + "  ▾ Сменить",for:.normal)
+        sourceButton.setTitle((group.name == "1WIN" ? "1WIN • " : "") + source.name + "  ▾ Сменить",for:.normal)
         sourceButton.menu = UIMenu(title:"Выберите сайт",children:menus); sourceButton.showsMenuAsPrimaryAction = true
         for item in chips.arrangedSubviews { chips.removeArrangedSubview(item); item.removeFromSuperview() }
         var selected: UIView?
@@ -384,7 +386,7 @@ final class ManagedBrowserController: UIViewController, WKNavigationDelegate, WK
             for destination in group.sources.filter(\.enabled) {
                 let button = UIButton(type:.system)
                 var configuration = UIButton.Configuration.filled()
-                configuration.title = destination.name
+                configuration.title = (group.name == "1WIN" ? "1WIN • " : "") + destination.name
                 configuration.baseBackgroundColor = destination.id == source.id ? .systemBlue : .secondarySystemBackground
                 configuration.baseForegroundColor = destination.id == source.id ? .white : .label
                 configuration.contentInsets = NSDirectionalEdgeInsets(top:6,leading:10,bottom:6,trailing:10)
