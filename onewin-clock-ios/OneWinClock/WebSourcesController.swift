@@ -569,6 +569,7 @@ extension WebSourcesController {
             auditWrite("picker",auditInitialBrowser?.auditPickerCount == 12)
         case "reserve":
             guard let win = catalog.groups.first(where: { $0.name == "1WIN" }), win.sources.count > 1 else { auditWrite("reserve",false); return }
+            if settingsExpanded { toggleSettings() }
             search.searchBar.text = "one-vv7109.com"; updateSearchResults(for:search)
             tableView(tableView,didSelectRowAt:IndexPath(row:0,section:0))
             let browser = navigationController?.topViewController as? ManagedBrowserController
