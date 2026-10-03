@@ -335,7 +335,7 @@ final class ManagedBrowserController: UIViewController, WKNavigationDelegate, WK
         super.init(nibName:nil,bundle:nil)
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--audit-navigation") {
-            c.userContentController.add(WeakWebMessageHandler(self),name:"backgroundTick")
+            web.configuration.userContentController.add(WeakWebMessageHandler(self),name:"backgroundTick")
         }
         #endif
     }
