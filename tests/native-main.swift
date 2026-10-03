@@ -70,6 +70,12 @@ MockProtocol.offline = true
 check(fetch(true).first?.id == "new" && manager.lastDeliveryCached,"offline serves labelled cache")
 MockProtocol.offline = false
 check(fetch(true).first?.id == "new" && !manager.lastDeliveryCached,"connection recovery restores HTTP source")
+let activeBeforeProbe = manager.activeID
+var probeComplete = false
+manager.check("main") { probeComplete = true }
+let probeDeadline = Date().addingTimeInterval(12)
+while !probeComplete && Date() < probeDeadline { RunLoop.current.run(until:Date().addingTimeInterval(0.01)) }
+check(probeComplete && manager.activeID == activeBeforeProbe,"health probe does not switch live source or evaluate signals")
 manager.selection = "AUTO"
 MockProtocol.pagination = true
 let paginated = SourceManager(config:cfg,session:URLSession(configuration:sessionConfig),monitorNetwork:false)

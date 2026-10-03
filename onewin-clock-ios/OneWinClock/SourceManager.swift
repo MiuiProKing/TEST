@@ -87,6 +87,7 @@ final class SourceManager {
     private var callbacks: [(Result<[RoundSample], Error>) -> Void] = []
     private var cache: [RoundSample] = []
     private var histories: [String: [RoundSample]] = [:]
+    private var probes: [String: SourceManager] = [:]
     private var lastFull: [String: Date] = [:]
     init(config: SourcesConfig = .load(), session: URLSession? = nil, monitorNetwork: Bool = true) {
         self.config = config
@@ -143,6 +144,27 @@ final class SourceManager {
             let fresh = h.lastNewRound.map { " • новый раунд \(Int(Date().timeIntervalSince($0)))с назад" } ?? " • свежесть не подтверждена"
             return "\(marker)\(s.name): \(h.status) • \(Int(h.latency * 1000))ms\(fresh)\n\(h.lastError ?? "")"
         }.joined(separator: "\n")
+    }
+    func check(_ id: String, completion: @escaping () -> Void) {
+        if config.sources.first(where: { $0.id == id })?.type == "cache" {
+            health[id]?.status = cache.isEmpty ? "OFFLINE" : "ONLINE"
+            completion(); return
+        }
+        guard probes[id] == nil else { return }
+        let probe = SourceManager(config:config,monitorNetwork:false)
+        probe.lastFull[id] = Date() // Health check only needs a bounded head, not a full history sync.
+        probes[id] = probe
+        probe.fetch(force:true,only:id) { [weak self, weak probe] _ in
+            guard let self, let probe else { return }
+            let old = self.health[id] ?? SourceHealth()
+            var h = probe.health[id] ?? SourceHealth()
+            h.lastNewRound = old.lastNewRound
+            h.lastIDs = old.lastIDs
+            h.lastSuccess = h.lastSuccess ?? old.lastSuccess
+            self.health[id] = h
+            self.probes.removeValue(forKey:id)
+            completion()
+        }
     }
     func fetch(force: Bool = false, only: String? = nil, completion: @escaping (Result<[RoundSample], Error>) -> Void) {
         if busy { callbacks.append(completion); return }

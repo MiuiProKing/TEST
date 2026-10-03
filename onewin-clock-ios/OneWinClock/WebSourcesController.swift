@@ -119,7 +119,7 @@ final class WebSourcesController: UITableViewController {
             })
         }
         menu.addAction(UIAlertAction(title:"Проверить выбранный",style:.default) { [weak self] _ in
-            guard let self else { return }; self.manager.fetch(force:true,only:self.manager.selection == "AUTO" ? "main" : self.manager.selection) { _ in self.tableView.reloadData() }
+            guard let self else { return }; self.manager.check(self.manager.selection == "AUTO" ? "main" : self.manager.selection) { self.tableView.reloadData() }
         })
         menu.addAction(UIAlertAction(title:"Статус всех API",style:.default) { [weak self] _ in
             guard let self else { return }
@@ -187,7 +187,7 @@ final class APIHealthController: UITableViewController {
         tableView.deselectRow(at:indexPath,animated:true)
         let source = manager.config.sources[indexPath.row]
         guard source.enabled, source.type != "cache" else { return }
-        manager.fetch(force:true,only:source.id) { [weak self] _ in self?.tableView.reloadData() }
+        manager.check(source.id) { [weak self] in self?.tableView.reloadData() }
     }
 }
 
