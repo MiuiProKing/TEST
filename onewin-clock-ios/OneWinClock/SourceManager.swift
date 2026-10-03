@@ -195,6 +195,12 @@ final class SourceManager {
                 request.setValue("077dee8d-c923-4c02-9bee-757573662e69",forHTTPHeaderField:"customer-id")
             }
             self.task = self.session.dataTask(with:request) { data,response,error in
+                // Parsing and date normalization can be expensive for 5000 rows; keep it off the UI queue.
+                let object: Any? = data.flatMap { bytes in
+                    guard bytes.count <= 16_000_000 else { return nil }
+                    return try? JSONSerialization.jsonObject(with:bytes)
+                }
+                let pageRows = object.map { Self.normalize($0,source:source.id) } ?? []
                 DispatchQueue.main.async {
                     guard self.generation == g else { return }
                     if let error = error as? URLError { fail("OFFLINE", "Сетевая ошибка \(error.code.rawValue)"); return }
@@ -202,8 +208,8 @@ final class SourceManager {
                     guard (200...299).contains(response.statusCode) else {
                         fail([401,403].contains(response.statusCode) ? "AUTH_REQUIRED" : "ERROR", "HTTP \(response.statusCode)",response.statusCode); return
                     }
-                    guard let object = try? JSONSerialization.jsonObject(with:data) else { fail("ERROR","Ответ не JSON",response.statusCode); return }
-                    let rows = Self.normalize(object, source:source.id)
+                    guard let object else { fail("ERROR","Ответ не JSON / превышен лимит",response.statusCode); return }
+                    let rows = pageRows
                     guard !rows.isEmpty || offset > 0 else { fail("ERROR","Нет валидных раундов с ID",response.statusCode); return }
                     collected += rows
                     let dict = object as? [String:Any]
@@ -239,6 +245,10 @@ final class SourceManager {
         page(0)
     }
     static func normalize(_ object: Any, source: String) -> [RoundSample] {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime,.withFractionalSeconds]
+        let standard = ISO8601DateFormatter()
+        standard.formatOptions = [.withInternetDateTime]
         func unwrap(_ x: Any) -> [[String:Any]] {
             if let a = x as? [[String:Any]] { return a }
             if let d = x as? [String:Any] {
@@ -256,11 +266,7 @@ final class SourceManager {
         func date(_ v: Any?) -> Date? {
             if let n = number(v), n.isFinite { return Date(timeIntervalSince1970:n > 1e11 ? n/1000 : n) }
             guard let s = v as? String else { return nil }
-            let f = ISO8601DateFormatter()
-            f.formatOptions = [.withInternetDateTime,.withFractionalSeconds]
-            if let d = f.date(from:s) { return d }
-            f.formatOptions = [.withInternetDateTime]
-            return f.date(from:s)
+            return fractional.date(from:s) ?? standard.date(from:s)
         }
         var seen = Set<String>()
         return unwrap(object).compactMap { row in

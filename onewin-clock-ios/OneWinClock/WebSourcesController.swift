@@ -32,6 +32,7 @@ final class WebSourcesController: UITableViewController {
     required init?(coder: NSCoder) { fatalError("init(coder:)") }
     override func viewDidLoad() {
         super.viewDidLoad()
+        checks = UserDefaults.standard.dictionary(forKey:"kiborg.web.health") as? [String:String] ?? [:]
         title = "📌 WEB / Источники"
         overrideUserInterfaceStyle = .dark
         navigationItem.rightBarButtonItem = UIBarButtonItem(title:"Готово",style:.done,target:self,action:#selector(close))
@@ -147,8 +148,9 @@ final class WebSourcesController: UITableViewController {
                 else if let code, [401,403].contains(code) { status = "AUTH_REQUIRED" }
                 else if let code, (200...399).contains(code) { status = Date().timeIntervalSince(start) > 5 ? "🟡 SLOW" : "🟢 ONLINE" }
                 else { status = "ERROR" }
-                let f = DateFormatter(); f.dateFormat = "HH:mm:ss"
+                let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm:ss"
                 self.checks[source.id] = "\(status) • HTTP \(code.map(String.init) ?? "—") • \(Int(Date().timeIntervalSince(start)*1000))ms • \(f.string(from:Date()))"
+                UserDefaults.standard.set(self.checks,forKey:"kiborg.web.health")
                 self.tasks.removeValue(forKey:source.id); self.tableView.reloadData()
             }
         }
@@ -248,5 +250,23 @@ final class ManagedBrowserController: UIViewController, WKNavigationDelegate, WK
     }
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
         if navigationAction.targetFrame == nil { web.load(navigationAction.request) }; return nil
+    }
+    func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
+        let alert = UIAlertController(title:nil,message:message,preferredStyle:.alert)
+        alert.addAction(UIAlertAction(title:"OK",style:.default) { _ in completionHandler() })
+        present(alert,animated:true)
+    }
+    func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+        let alert = UIAlertController(title:nil,message:message,preferredStyle:.alert)
+        alert.addAction(UIAlertAction(title:"Отмена",style:.cancel) { _ in completionHandler(false) })
+        alert.addAction(UIAlertAction(title:"OK",style:.default) { _ in completionHandler(true) })
+        present(alert,animated:true)
+    }
+    func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (String?) -> Void) {
+        let alert = UIAlertController(title:nil,message:prompt,preferredStyle:.alert)
+        alert.addTextField { $0.text = defaultText }
+        alert.addAction(UIAlertAction(title:"Отмена",style:.cancel) { _ in completionHandler(nil) })
+        alert.addAction(UIAlertAction(title:"OK",style:.default) { _ in completionHandler(alert.textFields?.first?.text) })
+        present(alert,animated:true)
     }
 }

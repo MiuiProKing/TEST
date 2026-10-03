@@ -1,4 +1,5 @@
-import unittest,sys,json,tempfile,sqlite3,copy,os
+import unittest,sys,json,tempfile,sqlite3,copy,os,ast,threading,types
+from datetime import datetime,timezone
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'onewin-clock-ios/OneWinClock'))
 import source_manager as sm
@@ -89,5 +90,31 @@ class SourceTests(unittest.TestCase):
             self.assertEqual(db.execute('SELECT source FROM rounds').fetchone()[0],'legacy')
             self.assertTrue({'source','created_at','estimated'} <= {r[1] for r in db.execute('PRAGMA table_info(rounds)')})
             db.close()
+    def test_actual_python_store_adapters(self):
+        # Compile only storage functions: importing the full bot would instantiate Telegram or start global DBs.
+        root=Path(sm.__file__).parent
+        for filename,names in [('KIBORG_V2.py',('db_connect','init_db','save_round')),('V0xFF3(1).py',('init_db','save_round'))]:
+            with tempfile.TemporaryDirectory() as d:
+                file=str(Path(d)/'history.sqlite3')
+                scope={'sqlite3':sqlite3,'DB_PATH':file,'DB_FILE':file,'db_lock':threading.RLock(),'migrate_rounds':sm.migrate_rounds,'now_kyiv':lambda:datetime.now(timezone.utc),'now':lambda:datetime.now(timezone.utc),'Round':types.SimpleNamespace}
+                tree=ast.parse((root/filename).read_text(encoding='utf-8'))
+                selected=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name in names]
+                exec(compile(ast.Module(body=selected,type_ignores=[]),filename,'exec'),scope)
+                result=scope['init_db']()
+                if filename=='KIBORG_V2.py':
+                    row={'id':'a','coef':1,'api_time':None,'source':'main','estimated':True}
+                else:
+                    scope['DB']=result
+                    row=types.SimpleNamespace(round_id='a',coefficient=1,ts=datetime.now(timezone.utc),source='main',estimated=True)
+                scope['save_round'](row);scope['save_round'](row)
+                if result:result.close()
+                with sqlite3.connect(file) as db:
+                    self.assertEqual(db.execute('SELECT count(*) FROM rounds').fetchone()[0],1)
+                    self.assertEqual(db.execute('SELECT id,round_id,coefficient,source,estimated FROM rounds').fetchone(),('a','a',1,'main',1))
+    def test_html_is_not_a_coefficient_api(self):
+        def tx(url,*a):
+            if 'xrniw' in url:raise ValueError('HTML instead of JSON')
+            return [{'id':'reserve','coefficient':2}]
+        m=self.manager(tx);m.fetch();self.assertEqual(m.health['main']['status'],'ERROR');self.assertEqual(m.active,'reserve')
 
 if __name__=='__main__':unittest.main()
