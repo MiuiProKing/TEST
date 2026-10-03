@@ -26,6 +26,7 @@ final class WebBrowserPool {
     private var recent: [String] = []
     func browser(for source: WebSource, group: WebGroup) -> ManagedBrowserController {
         let browser = browsers[source.id] ?? ManagedBrowserController(source:source,group:group)
+        browser.resumeHomeIfNeeded()
         browsers[source.id] = browser
         recent.removeAll { $0 == source.id }; recent.insert(source.id,at:0)
         while recent.count > 4 { browsers.removeValue(forKey:recent.removeLast()) }
@@ -278,6 +279,7 @@ final class ManagedBrowserController: UIViewController, WKNavigationDelegate, WK
     var onSwitch: ((WebSource,WebGroup) -> Void)?
     var onClose: (() -> Void)?
     var homeURL: String { homeSource.url }
+    func resumeHomeIfNeeded() { if isViewLoaded && source.id != homeSource.id { home() } }
     func navigateBack() { back() }
     func refreshPage() { loadViewIfNeeded(); reload() }
     private let web: WKWebView
@@ -552,6 +554,17 @@ extension WebSourcesController {
             toggleSettings(); auditWrite("settings",settingsExpanded && groups.count == 3 && tableView(tableView,numberOfRowsInSection:groups.count) == 3)
         case "picker":
             auditWrite("picker",auditInitialBrowser?.auditPickerCount == 12)
+        case "reserve":
+            guard let win = catalog.groups.first(where: { $0.name == "1WIN" }), win.sources.count > 1 else { auditWrite("reserve",false); return }
+            search.searchBar.text = "one-vv7109.com"; updateSearchResults(for:search)
+            tableView(tableView,didSelectRowAt:IndexPath(row:0,section:0))
+            let browser = navigationController?.topViewController as? ManagedBrowserController
+            browser?.auditReserve()
+            auditWait(browser:browser,file:win.sources[1].id + ".html",stage:"reserve")
+        case "reserve-home":
+            guard let win = catalog.groups.first(where: { $0.name == "1WIN" }), let main = win.sources.first else { auditWrite("reserve-home",false); return }
+            current?.auditChoose(main,group:win)
+            auditWait(browser:navigationController?.topViewController as? ManagedBrowserController,file:main.id + ".html",stage:"reserve-home")
         default: auditWrite(command,false)
         }
     }
@@ -574,6 +587,7 @@ extension ManagedBrowserController {
     fileprivate func auditForward() { forwardButton.sendActions(for:.touchUpInside) }
     fileprivate func auditHome() { home() }
     fileprivate func auditSites() { sites() }
+    fileprivate func auditReserve() { reserve() }
     fileprivate func auditChoose(_ source: WebSource, group: WebGroup) { switchTo(source,group:group) }
     fileprivate func auditMarkAndSwitch(_ destination: WebSource, group: WebGroup, completion: @escaping () -> Void) {
         web.evaluateJavaScript("window.kiborgNavigationMarker='preserved'; window.scrollTo(0,150);") { [weak self] _,_ in
