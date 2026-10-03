@@ -106,6 +106,11 @@ class SourceManager:
         except (OSError, ValueError, TypeError):
             pass
         self.histories = {s['id']:[r for r in self.cache if r.get('source')==s['id']] for s in self.config['sources']}
+        if self.cache:
+            self.health['local']['status']='ONLINE'
+        for s in self.config['sources']:
+            if s['type']=='api_key' and not s['enabled']:
+                self.health[s['id']].update(status='AUTH_REQUIRED',last_error='Disabled; own API key required')
         self.last_full = {}
         self.active = 'local'
         self.cached = False
@@ -205,6 +210,7 @@ class SourceManager:
                     rows=(rows+[r for r in old if r['id'] not in ids])[:5000]
                     self.histories[source['id']]=rows
                     self.cache=rows; self.active=source['id']; self.cached=False
+                    self.health['local']['status']='ONLINE'
                     try:
                         tmp=self.cache_path.with_suffix('.tmp')
                         tmp.write_text(json.dumps(rows,ensure_ascii=False),encoding='utf-8')

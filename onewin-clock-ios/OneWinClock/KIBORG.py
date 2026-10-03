@@ -1540,27 +1540,15 @@ def handle_callback(
 
 
 def source_status_text() -> str:
-    parts = ["🌐 <b>LIVE-ИСТОЧНИКИ</b>", ""]
-    parts.append(
-        f"{'✅' if SESSION_ID and CUSTOMER_ID else '⛔'} "
-        "LuckyJet GAME history (session/customer)"
-    )
-    parts.append(
-        f"{'✅' if HISTORY_URL else '⛔'} "
-        f"History URL: {HISTORY_URL}"
-    )
-    parts.append(
-        f"{'✅' if ALLPREDICTOR_API_KEY else '⛔'} "
-        "AllPredictor API"
-    )
-    parts.append(
-        f"{'✅' if PARSE_API_KEY else '⛔'} "
-        "Parse LuckyJet API"
-    )
-    if HISTORY_FALLBACKS:
-        parts.append(f"✅ Дополнительные URL: {len(HISTORY_FALLBACKS)}")
-    else:
-        parts.append("⛔ Дополнительные URL: 0")
+    from html import escape
+    manager = shared_manager()
+    parts = ["🌐 <b>LIVE-ИСТОЧНИКИ</b>", "", f"Выбор: {escape(manager.selection)} • текущий: {escape(manager.active)}"]
+    for source in manager.config['sources']:
+        h = manager.health[source['id']]
+        status = h['status'] if h['last_success'] is not None or h['last_error'] else 'NOT VERIFIED'
+        parts.append(f"{escape(source['name'])}: {escape(status)} • {int(h['latency']*1000)}ms")
+    if manager.cached:
+        parts.append("⚠️ LOCAL CACHE — сохранённая история, не новый LIVE")
     return "\n".join(parts)
 
 
