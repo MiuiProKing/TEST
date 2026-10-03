@@ -27,6 +27,7 @@ check((try? JSONDecoder().decode([RoundSample].self,from:old))?.first?.id == "sa
 final class MockProtocol: URLProtocol {
     static var requests: [URLRequest] = []
     static var offline = false
+    static var pagination = false
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -36,7 +37,12 @@ final class MockProtocol: URLProtocol {
         }
         let response = HTTPURLResponse(url:request.url!,statusCode:200,httpVersion:nil,headerFields:["Content-Type":"application/json"])!
         client?.urlProtocol(self,didReceive:response,cacheStoragePolicy:.notAllowed)
-        client?.urlProtocol(self,didLoad:"{\"history\":[{\"id\":\"new\",\"coefficient\":4.2}]}".data(using:.utf8)!)
+        let body: String
+        if MockProtocol.pagination {
+            let offset = URLComponents(url:request.url!,resolvingAgainstBaseURL:false)?.queryItems?.first(where:{$0.name=="offset"})?.value ?? "0"
+            body = offset == "0" ? "{\"history\":[{\"id\":\"a\",\"coefficient\":1}],\"hasMore\":true,\"nextOffset\":1000}" : "{\"history\":[{\"id\":\"b\",\"coefficient\":2}],\"hasMore\":false}"
+        } else { body = "{\"history\":[{\"id\":\"new\",\"coefficient\":4.2}]}" }
+        client?.urlProtocol(self,didLoad:body.data(using:.utf8)!)
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}
@@ -49,9 +55,9 @@ let cfg = SourcesConfig(poll_seconds:1,full_sync_seconds:30,stale_seconds:120,re
 let sessionConfig = URLSessionConfiguration.ephemeral; sessionConfig.protocolClasses = [MockProtocol.self]
 let manager = SourceManager(config:cfg,session:URLSession(configuration:sessionConfig),monitorNetwork:false)
 manager.selection = "AUTO"
-func fetch(_ force: Bool = false) -> [RoundSample] {
+func fetch(_ force: Bool = false, using target: SourceManager = manager) -> [RoundSample] {
     var finished = false; var output: [RoundSample] = []
-    manager.fetch(force:force) { result in output = (try? result.get()) ?? []; finished = true }
+    target.fetch(force:force) { result in output = (try? result.get()) ?? []; finished = true }
     let deadline = Date().addingTimeInterval(5)
     while !finished && Date() < deadline { RunLoop.current.run(until:Date().addingTimeInterval(0.01)) }
     check(finished,"async fetch completed within bound")
@@ -65,6 +71,13 @@ check(fetch(true).first?.id == "new" && manager.lastDeliveryCached,"offline serv
 MockProtocol.offline = false
 check(fetch(true).first?.id == "new" && !manager.lastDeliveryCached,"connection recovery restores HTTP source")
 manager.selection = "AUTO"
+MockProtocol.pagination = true
+let paginated = SourceManager(config:cfg,session:URLSession(configuration:sessionConfig),monitorNetwork:false)
+paginated.selection = "reserve"
+check(fetch(using:paginated).map(\.id) == ["a","b"],"native pagination returns complete unique history")
+check(fetch(using:paginated).map(\.id) == ["a","b"],"fast head retains earlier pages; no phantom later backfill")
+paginated.selection = "AUTO"
+MockProtocol.pagination = false
 print("Native transport checks passed")
 
 let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

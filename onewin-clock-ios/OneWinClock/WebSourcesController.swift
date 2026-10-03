@@ -112,7 +112,7 @@ final class WebSourcesController: UITableViewController {
         for (id,name) in [("AUTO","AUTO")] + manager.config.sources.filter { $0.enabled }.map({ ($0.id,$0.name) }) {
             menu.addAction(UIAlertAction(title:name,style:.default) { [weak self] _ in
                 guard let self else { return }; self.manager.selection = id
-                self.manager.fetch(force:true) { _ in self.tableView.reloadData() }
+                self.tableView.reloadData()
             })
         }
         menu.addAction(UIAlertAction(title:"Проверить выбранный",style:.default) { [weak self] _ in

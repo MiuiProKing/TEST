@@ -105,6 +105,7 @@ class SourceManager:
             self.cache = [r for r in saved if isinstance(r,dict) and r.get('id') and isinstance(r.get('coefficient'),(float,int)) and math.isfinite(r['coefficient']) and r['coefficient'] >= 1]
         except (OSError, ValueError, TypeError):
             pass
+        self.histories = {s['id']:[r for r in self.cache if r.get('source')==s['id']] for s in self.config['sources']}
         self.last_full = {}
         self.active = 'local'
         self.cached = False
@@ -200,6 +201,9 @@ class SourceManager:
                     if self.clock()-h['last_new_round'] > self.config.get('stale_seconds',120):
                         h.update(status='SLOW',last_error='No new round >120s',retry_at=self.clock()+30)
                         continue
+                    old=self.histories.get(source['id'],[])
+                    rows=(rows+[r for r in old if r['id'] not in ids])[:5000]
+                    self.histories[source['id']]=rows
                     self.cache=rows; self.active=source['id']; self.cached=False
                     try:
                         tmp=self.cache_path.with_suffix('.tmp')

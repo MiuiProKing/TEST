@@ -60,7 +60,7 @@ class SourceTests(unittest.TestCase):
             if 'offset=0' in url:return {'history':[{'id':'a','coefficient':4}],'hasMore':True,'nextOffset':1000}
             return {'data':{'history':[{'id':'a','coefficient':4},{'id':'b','coefficient':4}]},'hasMore':False}
         m=self.manager(tx);self.assertEqual([r['id'] for r in m.fetch(limit=1)],['a','b']);self.assertEqual(len(calls),2)
-        m.fetch();self.assertEqual(len(calls),3) # fast head only, no second full scan
+        self.assertEqual([r['id'] for r in m.fetch()],['a','b']);self.assertEqual(len(calls),3) # fast head only, old history retained
     def test_stale_is_not_online(self):
         clock=[1000000]
         def tx(*args):return [{'id':'a','coefficient':2}]

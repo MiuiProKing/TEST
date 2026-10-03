@@ -86,6 +86,7 @@ final class SourceManager {
     private var task: URLSessionDataTask?
     private var callbacks: [(Result<[RoundSample], Error>) -> Void] = []
     private var cache: [RoundSample] = []
+    private var histories: [String: [RoundSample]] = [:]
     private var lastFull: [String: Date] = [:]
     init(config: SourcesConfig = .load(), session: URLSession? = nil, monitorNetwork: Bool = true) {
         self.config = config
@@ -235,9 +236,12 @@ final class SourceManager {
                         self.attempt(candidates,index:index+1,generation:g,allowCache:allowCache); return
                     }
                     if self.activeID != source.id { self.onLog?("Источник: \(source.name) подключён") }
-                    self.activeID = source.id; self.lastDeliveryCached = false; self.cache = all
+                    let old = self.histories[source.id] ?? []
+                    let delivered = Array((all + old.filter { !ids.contains($0.id) }).prefix(5000))
+                    self.histories[source.id] = delivered
+                    self.activeID = source.id; self.lastDeliveryCached = false; self.cache = delivered
                     if full { self.lastFull[source.id] = Date() }
-                    self.finish(.success(all),generation:g)
+                    self.finish(.success(delivered),generation:g)
                 }
             }
             self.task?.resume()
