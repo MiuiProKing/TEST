@@ -26,6 +26,7 @@ Environment variables:
 """
 
 import os
+from source_manager import source_url, shared_manager, normalize_round as normalized_round, migrate_rounds
 import sys
 import time
 import json
@@ -53,7 +54,7 @@ BOT_TOKEN = os.getenv("V0XFF3_BOT_TOKEN", "").strip()
 CHAT_ID = os.getenv("V0XFF3_CHAT_ID", "").strip()
 HISTORY_URL = os.getenv(
     "V0XFF3_HISTORY_URL",
-    "https://crash-gateway-grm-cr.100hp.app/history",
+    source_url("legacy"),
 ).strip()
 
 CUSTOMER_ID = os.getenv(
@@ -66,10 +67,10 @@ SESSION_ID = os.getenv(
 ).strip()
 RELAY_URL = os.getenv(
     "V0XFF3_RELAY_URL",
-    "https://xlidiojdbozxikjloiaj.supabase.co/functions/v1/v0xff3-live",
+    source_url("reserve"),
 ).strip().rstrip("/")
 
-POLL_SEC = max(2, int(os.getenv("V0XFF3_POLL_SEC", "4")))
+POLL_SEC = max(1, int(os.getenv("V0XFF3_POLL_SEC", "1")))
 TZ_NAME = os.getenv("V0XFF3_TZ", "Europe/Kyiv")
 TZ = ZoneInfo(TZ_NAME) if ZoneInfo else None
 
@@ -93,6 +94,8 @@ class Round:
     round_id: str
     coefficient: float
     ts: datetime
+    source: str = "legacy"
+    estimated: bool = False
 
 
 @dataclass
@@ -180,6 +183,7 @@ def init_db() -> sqlite3.Connection:
             result TEXT DEFAULT ''
         )
     """)
+    migrate_rounds(conn)
     conn.commit()
     return conn
 
@@ -218,30 +222,11 @@ def first_present(d: Dict[str, Any], keys: Iterable[str]) -> Any:
 
 
 def normalize_round(item: Dict[str, Any], fallback_ts: Optional[datetime] = None) -> Optional[Round]:
-    rid = first_present(item, ["id", "round_id", "roundId", "_id", "gameId"])
-    coeff = first_present(
-        item,
-        ["topCoefficient", "top_coefficient", "coefficient", "multiplier", "value"]
-    )
-    if coeff is None:
-        finals = first_present(item, ["finalValues", "final_values"])
-        if isinstance(finals, list) and finals:
-            coeff = max(finals)
-
-    ts = first_present(
-        item,
-        ["createdAt", "created_at", "timestamp", "time", "start_time", "endedAt", "ended_at"]
-    )
-
-    if rid is None or coeff is None:
+    r = normalized_round(item)
+    if not r:
         return None
-
-    try:
-        c = float(coeff)
-    except Exception:
-        return None
-
-    return Round(str(rid), c, parse_ts(ts) if ts is not None else (fallback_ts or now()))
+    ts = parse_ts(r['timestamp']) if r['timestamp'] else (fallback_ts or now())
+    return Round(r['id'], r['coefficient'], ts, r['source'], r['estimated'])
 
 
 def extract_items(data: Any) -> List[Dict[str, Any]]:
@@ -263,47 +248,21 @@ def extract_items(data: Any) -> List[Dict[str, Any]]:
 
 
 def fetch_history() -> List[Round]:
-    if not HISTORY_URL:
-        raise RuntimeError("V0XFF3_HISTORY_URL не задан")
-
-    headers = {
-        "Accept": "application/json",
-        "User-Agent": "V0xFF3/1.0",
-    }
-    if CUSTOMER_ID:
-        headers["customer-id"] = CUSTOMER_ID
-    if SESSION_ID:
-        headers["session-id"] = SESSION_ID
-
-    r = requests.get(HISTORY_URL, headers=headers, timeout=15)
-    r.raise_for_status()
-    data = r.json()
-
-    out: List[Round] = []
-    fetched_at = now()
-    for index, item in enumerate(extract_items(data)):
-        # LuckyJet returns the newest item first. Estimate absent timestamps so
-        # SQLite and the HTML page still agree on the actual latest round.
-        rr = normalize_round(item, fetched_at - timedelta(seconds=index * 12))
-        if rr:
-            out.append(rr)
-
-    out.sort(key=lambda x: x.ts)
-    return out
+    out = []
+    for r in shared_manager().fetch():
+        # A missing source timestamp is explicitly approximate, not reconstructed at 12s intervals.
+        ts = parse_ts(r['timestamp']) if r['timestamp'] else now()
+        out.append(Round(r['id'], r['coefficient'], ts, r['source'], r['estimated']))
+    return list(reversed(out))
 
 
 def save_round(rr: Round) -> bool:
     cursor = DB.execute(
-        "INSERT OR IGNORE INTO rounds(round_id, coefficient, ts) VALUES(?,?,?)",
-        (rr.round_id, rr.coefficient, rr.ts.isoformat()),
-    )
-    inserted = cursor.rowcount > 0
-    DB.execute(
-        "UPDATE rounds SET coefficient=?, ts=? WHERE round_id=?",
-        (rr.coefficient, rr.ts.isoformat(), rr.round_id),
+        "INSERT OR IGNORE INTO rounds(round_id, coefficient, ts, source, created_at, estimated) VALUES(?,?,?,?,?,?)",
+        (rr.round_id, rr.coefficient, rr.ts.isoformat(), rr.source, now().isoformat(), int(rr.estimated)),
     )
     DB.commit()
-    return inserted
+    return cursor.rowcount > 0
 
 
 def push_live_relay() -> None:

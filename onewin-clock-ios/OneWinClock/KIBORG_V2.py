@@ -20,6 +20,7 @@ GROSSE CÔTE + собственная статистическая логика 
 """
 
 import os
+from source_manager import source_url, shared_manager, normalize_round as normalized_round, migrate_rounds
 import re
 import json
 import time
@@ -40,10 +41,10 @@ from telebot import types
 # Лучше переопределить секреты через ENV на сервере.
 # ============================================================
 TOKEN = os.getenv("TELEGRAM_TOKEN", "")
-GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "-1003959529321"))
-ADMIN_ID = int(os.getenv("ADMIN_ID", "8016237913"))
+GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "0"))
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
-LUCKYJET_URL = os.getenv("LUCKYJET_API_URL", "https://crash-gateway-grm-cr.100hp.app/history")
+LUCKYJET_URL = os.getenv("LUCKYJET_API_URL", source_url("legacy"))
 CUSTOMER_ID = os.getenv("LUCKYJET_CUSTOMER_ID", "077dee8d-c923-4c02-9bee-757573662e69")
 SESSION_ID = os.getenv("LUCKYJET_SESSION_ID", "00000000-0000-0000-0000-000000000000")
 
@@ -56,7 +57,7 @@ LUCKYJET_HEADERS = {
 
 TZ = ZoneInfo("Europe/Kyiv")
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "12"))
-POLL_SECONDS = int(os.getenv("POLL_SECONDS", "5"))
+POLL_SECONDS = int(os.getenv("POLL_SECONDS", "1"))
 AUTO_SIGNALS = os.getenv("AUTO_SIGNALS", "1") == "1"
 CONFIDENCE_MIN = int(os.getenv("CONFIDENCE_MIN", "70"))
 SIGNAL_COOLDOWN_SECONDS = int(os.getenv("SIGNAL_COOLDOWN_SECONDS", "60"))
@@ -231,13 +232,15 @@ def init_db():
                 ON signal_attempts(signal_id);
             """
         )
+        migrate_rounds(con)
 
 
 def save_round(row):
     with db_lock, db_connect() as con:
         con.execute(
-            "INSERT OR IGNORE INTO rounds(id, coef, api_time, received_at) VALUES(?,?,?,?)",
-            (row["id"], row["coef"], row.get("api_time"), now_kyiv().isoformat()),
+            "INSERT OR IGNORE INTO rounds(id, coef, api_time, received_at, source, created_at, estimated) VALUES(?,?,?,?,?,?,?)",
+            (row['id'], row['coef'], row.get('api_time'), now_kyiv().isoformat(),
+             row.get('source','legacy'), now_kyiv().isoformat(), int(row.get('estimated',False))),
         )
 
 
@@ -359,57 +362,17 @@ def db_stats_text():
 # LUCKYJET HISTORY
 # ============================================================
 def normalize(item):
-    if not isinstance(item, dict):
+    r = normalized_round(item)
+    if not r:
         return None
-    raw = item.get("finalValues")
-    if isinstance(raw, list) and raw:
-        raw = raw[-1]
-    if raw is None:
-        raw = item.get("topCoefficient")
-    if raw is None:
-        raw = item.get("coefficient") or item.get("coef") or item.get("value")
-    coef = safe_float(raw)
-    if coef is None or coef <= 0:
-        return None
-    raw_time = item.get("createdAt") or item.get("time") or item.get("timestamp")
-    rid = str(
-        item.get("id") or item.get("roundId") or item.get("round_id") or item.get("hash")
-        or f"{coef}:{raw_time or ''}"
-    )
-    dt = parse_time(raw_time)
-    return {
-        "id": rid,
-        "coef": round(coef, 2),
-        "raw_time": raw_time,
-        "api_time": dt.isoformat() if dt else None,
-    }
+    return {'id':r['id'], 'coef':r['coefficient'], 'raw_time':r['timestamp'],
+            'api_time':r['timestamp'], 'source':r['source'], 'estimated':r['estimated']}
 
 
 def fetch_history(limit=500):
-    r = requests.get(LUCKYJET_URL, headers=LUCKYJET_HEADERS, timeout=REQUEST_TIMEOUT)
-    r.raise_for_status()
-    data = r.json()
-    if isinstance(data, dict):
-        # Поддержка частых API-обёрток без жёсткой привязки.
-        for key in ("data", "history", "items", "results"):
-            if isinstance(data.get(key), list):
-                data = data[key]
-                break
-    if not isinstance(data, list):
-        raise RuntimeError(f"Unexpected API format: {type(data).__name__}")
-
-    rows, seen = [], set()
-    for item in data:
-        row = normalize(item)
-        if not row or row["id"] in seen:
-            continue
-        seen.add(row["id"])
-        rows.append(row)
-        if len(rows) >= limit:
-            break
-    if not rows:
-        raise RuntimeError("LuckyJet history is empty")
-    return rows
+    return [{'id':r['id'], 'coef':r['coefficient'], 'raw_time':r['timestamp'],
+             'api_time':r['timestamp'], 'source':r['source'], 'estimated':r['estimated']}
+            for r in shared_manager().fetch(limit)]
 
 
 # ============================================================

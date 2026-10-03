@@ -1,0 +1,70 @@
+{
+  "poll_seconds": 1,
+  "full_sync_seconds": 30,
+  "stale_seconds": 120,
+  "retry_seconds": [
+    1,
+    2,
+    5,
+    10,
+    30
+  ],
+  "sources": [
+    {
+      "id": "main",
+      "name": "MAIN • база beta.html",
+      "url": "https://xrniwkvfrtchtxjrwwgd.supabase.co/functions/v1/v0xff3-live",
+      "type": "snapshot",
+      "enabled": true,
+      "priority": 0,
+      "timeout": 8
+    },
+    {
+      "id": "reserve",
+      "name": "RESERVE 1 • прежняя база",
+      "url": "https://xlidiojdbozxikjloiaj.supabase.co/functions/v1/v0xff3-live",
+      "type": "snapshot",
+      "enabled": true,
+      "priority": 1,
+      "timeout": 8
+    },
+    {
+      "id": "legacy",
+      "name": "RESERVE 2 • LuckyJet SESSION",
+      "url": "https://crash-gateway-grm-cr.100hp.app/history",
+      "type": "session",
+      "enabled": true,
+      "priority": 2,
+      "timeout": 8
+    },
+    {
+      "id": "allpredictor",
+      "name": "AllPredictor • свой ключ",
+      "url": "https://allpredictor.com/api/v1/luckyjet/coefficients?limit=20",
+      "type": "api_key",
+      "enabled": false,
+      "priority": 3,
+      "timeout": 8,
+      "key_env": "ALLPREDICTOR_API_KEY"
+    },
+    {
+      "id": "parse",
+      "name": "Parse • свой ключ",
+      "url": "https://api.parse.bot/scraper/dfcd37a4-42ee-4914-824f-2651f659871d/get_rounds_history",
+      "type": "api_key",
+      "enabled": false,
+      "priority": 4,
+      "timeout": 8,
+      "key_env": "PARSE_API_KEY"
+    },
+    {
+      "id": "local",
+      "name": "SQLite / LOCAL CACHE",
+      "url": "local://v0xff3-rounds.sqlite3",
+      "type": "cache",
+      "enabled": true,
+      "priority": 99,
+      "timeout": 0
+    }
+  ]
+}

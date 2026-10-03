@@ -1,0 +1,91 @@
+{
+  "groups": [
+    {
+      "name": "LuckyJet",
+      "sources": [
+        {
+          "id": "live",
+          "name": "LuckyJet LIVE",
+          "url": "https://miuiproking.github.io/luckyjet-telegram-mini-app/luckyjet-live/",
+          "enabled": true
+        },
+        {
+          "id": "overview",
+          "name": "LuckyJet overview",
+          "url": "https://miuiproking.github.io/luckyjet-telegram-mini-app/luckyjet-live/#overview",
+          "enabled": true
+        },
+        {
+          "id": "live_38",
+          "name": "LuckyJet LIVE • 38dc898",
+          "url": "https://miuiproking.github.io/luckyjet-telegram-mini-app/luckyjet-live/?v=38dc8989309abe3202da9e3b455a70a6f7c934dd",
+          "enabled": true
+        },
+        {
+          "id": "live_d6",
+          "name": "LuckyJet LIVE • d6f1eb0",
+          "url": "https://miuiproking.github.io/luckyjet-telegram-mini-app/luckyjet-live/?v=d6f1eb00773ca88c700ee45d7aea2e780c59cc67",
+          "enabled": true
+        },
+        {
+          "id": "pro",
+          "name": "PRO LuckyJet",
+          "url": "https://miuiproking.github.io/luckyjet-telegram-mini-app/pro-luckyjet.html?v=20260823-2",
+          "enabled": true
+        },
+        {
+          "id": "cosmic",
+          "name": "Cosmic Pulsar",
+          "url": "https://cosmic-pulsar-canvas.lovable.app/app.html",
+          "enabled": true
+        },
+        {
+          "id": "historique",
+          "name": "Historique LuckyJet",
+          "url": "https://historique-luckyjet.shop",
+          "enabled": true
+        },
+        {
+          "id": "bog",
+          "name": "БОГ ХИЩНИК • 1 сек",
+          "url": "https://rawcdn.githack.com/MiuiProKing/luckyjet-telegram-mini-app/52944e4d2ce7595217afba850289fd66619bd6bf/bog-hishchnik-alert/index.html",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "name": "1WIN",
+      "sources": [
+        {
+          "id": "1win_main",
+          "name": "Основная",
+          "url": "https://one-vv7109.com/betting?p=yshe",
+          "enabled": true
+        },
+        {
+          "id": "1win_test",
+          "name": "Тестовая / резерв",
+          "url": "https://1w-ftend.life/",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "name": "Прежние страницы",
+      "sources": [
+        {
+          "id": "old_predictor",
+          "name": "Прежний Predictor",
+          "url": "https://miuiproking.github.io/luckyjet-telegram-mini-app/index.html?v=20260823-3",
+          "enabled": true
+        },
+        {
+          "id": "v0xff3",
+          "name": "V0xFF3",
+          "url": "https://miuiproking.github.io/luckyjet-telegram-mini-app/v0xff3.html?v=20260827-6",
+          "enabled": true
+        }
+      ]
+    }
+  ]
+}

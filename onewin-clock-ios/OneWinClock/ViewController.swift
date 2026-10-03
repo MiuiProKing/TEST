@@ -3,11 +3,7 @@ import WebKit
 import AudioToolbox
 import SQLite3
 
-private struct RoundSample: Codable, Equatable {
-    let id: String
-    let coefficient: Double
-    let timestamp: Date?
-}
+
 
 private let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
@@ -37,6 +33,13 @@ private final class SQLiteRoundStore {
                     timestamp REAL
                 )
                 """, nil, nil, nil)
+            let migration = [
+                "ALTER TABLE rounds ADD COLUMN source TEXT NOT NULL DEFAULT 'legacy'",
+                "ALTER TABLE rounds ADD COLUMN created_at REAL",
+                "ALTER TABLE rounds ADD COLUMN estimated INTEGER NOT NULL DEFAULT 0"
+            ]
+            for sql in migration { sqlite3_exec(connection, sql, nil, nil, nil) }
+            sqlite3_exec(connection, "CREATE INDEX IF NOT EXISTS idx_rounds_source ON rounds(source)", nil, nil, nil)
             sqlite3_exec(connection, "CREATE INDEX IF NOT EXISTS idx_rounds_seq ON rounds(seq DESC)", nil, nil, nil)
         } else {
             connection = nil
@@ -51,7 +54,7 @@ private final class SQLiteRoundStore {
         guard let connection, !rounds.isEmpty else { return }
         sqlite3_exec(connection, "BEGIN IMMEDIATE", nil, nil, nil)
         var statement: OpaquePointer?
-        let sql = "INSERT OR IGNORE INTO rounds(round_id, coefficient, timestamp) VALUES(?,?,?)"
+        let sql = "INSERT OR IGNORE INTO rounds(round_id, coefficient, timestamp, source, created_at, estimated) VALUES(?,?,?,?,?,?)"
         guard sqlite3_prepare_v2(connection, sql, -1, &statement, nil) == SQLITE_OK else {
             sqlite3_exec(connection, "ROLLBACK", nil, nil, nil)
             return
@@ -67,21 +70,22 @@ private final class SQLiteRoundStore {
             } else {
                 sqlite3_bind_null(statement, 3)
             }
-            sqlite3_step(statement)
+            sqlite3_bind_text(statement, 4, ((round.source ?? "legacy") as NSString).utf8String, -1, sqliteTransient)
+            sqlite3_bind_double(statement, 5, Date().timeIntervalSince1970)
+            sqlite3_bind_int(statement, 6, round.estimated == true ? 1 : 0)
+            if sqlite3_step(statement) != SQLITE_DONE {
+                sqlite3_exec(connection, "ROLLBACK", nil, nil, nil)
+                return
+            }
         }
         sqlite3_exec(connection, "COMMIT", nil, nil, nil)
-        sqlite3_exec(connection, """
-            DELETE FROM rounds WHERE seq IN (
-                SELECT seq FROM rounds ORDER BY seq DESC LIMIT -1 OFFSET 100000
-            )
-            """, nil, nil, nil)
     }
 
     func load(limit: Int = 5_000) -> [RoundSample] {
         guard let connection else { return [] }
         var statement: OpaquePointer?
         let safeLimit = max(1, min(limit, 10_000))
-        guard sqlite3_prepare_v2(connection, "SELECT round_id, coefficient, timestamp FROM rounds ORDER BY seq DESC LIMIT ?", -1, &statement, nil) == SQLITE_OK else { return [] }
+        guard sqlite3_prepare_v2(connection, "SELECT round_id, coefficient, timestamp, source, estimated FROM rounds ORDER BY seq DESC LIMIT ?", -1, &statement, nil) == SQLITE_OK else { return [] }
         defer { sqlite3_finalize(statement) }
         sqlite3_bind_int(statement, 1, Int32(safeLimit))
         var rows: [RoundSample] = []
@@ -92,7 +96,8 @@ private final class SQLiteRoundStore {
             let timestamp: Date? = sqlite3_column_type(statement, 2) == SQLITE_NULL
                 ? nil
                 : Date(timeIntervalSince1970: sqlite3_column_double(statement, 2))
-            rows.append(RoundSample(id: id, coefficient: coefficient, timestamp: timestamp))
+            let source = sqlite3_column_text(statement, 3).map { String(cString: $0) }
+            rows.append(RoundSample(id: id, coefficient: coefficient, timestamp: timestamp, source: source, estimated: sqlite3_column_int(statement, 4) != 0))
         }
         return rows
     }
@@ -265,12 +270,16 @@ private struct FusionCandidate {
 }
 
 final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate {
-    private let api = URL(string: "https://crash-gateway-grm-cr.100hp.app/history")!
-    private let sqliteSnapshotAPI = URL(string: "https://xlidiojdbozxikjloiaj.supabase.co/functions/v1/v0xff3-live")!
-    private let customerID = "077dee8d-c923-4c02-9bee-757573662e69"
-    private let sessionID = "00000000-0000-0000-0000-000000000000"
+    private let sources = SourceManager()
+    private var deliverySource = ""
+    private var gameBrowser: ManagedBrowserController?
+    private let webButton = UIButton(type: .system)
     private let allPredictorURL = URL(string: "https://miuiproking.github.io/luckyjet-telegram-mini-app/index.html?v=20260823-3")!
-    private let gameURL = URL(string: "https://1w-ftend.life/")!
+    private var gameURL: URL {
+        let catalog = WebCatalog.load()
+        let id = UserDefaults.standard.string(forKey: "kiborg.web.selected.1WIN") ?? "1win_main"
+        return URL(string: (catalog.source(id) ?? catalog.source("1win_main"))!.url)!
+    }
     private let v0xFF3URL = URL(string: "https://miuiproking.github.io/luckyjet-telegram-mini-app/v0xff3.html?v=20260827-6")!
 
     private let selectedTabKey = "onewinclock.selectedTab.v3"
@@ -308,8 +317,6 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private var clockTimer: Timer?
     private var liveTimer: Timer?
     private var liveRequestInFlight = false
-    private var remoteSnapshotInFlight = false
-    private var lastRemoteSnapshotAttempt = Date.distantPast
     private var latestRounds: [RoundSample] = []
     private var lastProcessedRoundID: String?
     private var pendingSignal: PendingSignal?
@@ -331,6 +338,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         UIApplication.shared.isIdleTimerDisabled = true
 
         loadSavedState()
+        sources.setCache(latestRounds)
+        sources.onLog = { [weak self] message in self?.recordEvent(message) }
         buildUI()
         buildPersistentWebViews()
         installLifecycleObservers()
@@ -348,6 +357,15 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         liveTimer?.invalidate()
         NotificationCenter.default.removeObserver(self)
         UIApplication.shared.isIdleTimerDisabled = false
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        if let browser = gameBrowser, browser.homeURL != gameURL.absoluteString {
+            browser.willMove(toParent: nil); browser.view.removeFromSuperview(); browser.removeFromParent()
+            gameBrowser = nil
+            applySelectedTab()
+        }
     }
 
     override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
@@ -394,20 +412,26 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             let fetchedIDs = Set(fetched.map(\.id))
             latestRounds = Array((fetched + latestRounds.filter { !fetchedIDs.contains($0.id) }).prefix(5_000))
         } else {
-            latestRounds = stored
+            let byID = Dictionary(stored.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            let fetchedIDs = Set(fetched.map(\.id))
+            latestRounds = Array((fetched.map { byID[$0.id] ?? $0 } + stored.filter { !fetchedIDs.contains($0.id) }).prefix(5_000))
         }
         saveRoundCache()
         return latestRounds
     }
 
     private func buildUI() {
-        let topBar = UIStackView(arrangedSubviews: [clockLabel, liveLabel, backButton, reloadButton])
+        let topBar = UIStackView(arrangedSubviews: [clockLabel, liveLabel, backButton, reloadButton, webButton])
         topBar.axis = .horizontal
         topBar.alignment = .center
         topBar.spacing = 8
         topBar.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(topBar)
 
+        webButton.setTitle("📌 WEB", for: .normal)
+        webButton.titleLabel?.font = .boldSystemFont(ofSize: 10)
+        webButton.widthAnchor.constraint(equalToConstant: 48).isActive = true
+        webButton.addTarget(self, action: #selector(openWEB), for: .touchUpInside)
         clockLabel.textColor = .white
         clockLabel.font = .monospacedDigitSystemFont(ofSize: 18, weight: .heavy)
         clockLabel.setContentHuggingPriority(.required, for: .horizontal)
@@ -748,7 +772,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
 
         // Все страницы загружаются один раз и остаются живыми при переключении вкладок.
         allPredictorWebView.load(URLRequest(url: allPredictorURL, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 30))
-        gameWebView.load(URLRequest(url: gameURL, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 30))
+        // 1WIN loads lazily in the managed browser when its tab is selected.
         v0xFF3WebView.load(URLRequest(url: v0xFF3URL, cachePolicy: .reloadRevalidatingCacheData, timeoutInterval: 30))
     }
 
@@ -759,12 +783,11 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
 
     private func startTimers() {
         updateClock()
-        syncRemoteSQLiteSnapshotIfNeeded(force: true)
         pollLiveCoefficient()
         clockTimer?.invalidate()
         liveTimer?.invalidate()
         clockTimer = Timer.scheduledTimer(timeInterval: 1, target: self, selector: #selector(updateClock), userInfo: nil, repeats: true)
-        liveTimer = Timer.scheduledTimer(timeInterval: 2.5, target: self, selector: #selector(pollLiveCoefficient), userInfo: nil, repeats: true)
+        liveTimer = Timer.scheduledTimer(timeInterval: sources.config.poll_seconds, target: self, selector: #selector(pollLiveCoefficient), userInfo: nil, repeats: true)
         if let clockTimer { RunLoop.main.add(clockTimer, forMode: .common) }
         if let liveTimer { RunLoop.main.add(liveTimer, forMode: .common) }
     }
@@ -777,6 +800,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     @objc private func appDidEnterBackground() {
         clockTimer?.invalidate()
         liveTimer?.invalidate()
+        sources.suspend()
+        liveRequestInFlight = false
     }
 
     @objc private func updateClock() {
@@ -784,7 +809,6 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     @objc private func pollLiveCoefficient() {
-        syncRemoteSQLiteSnapshotIfNeeded()
         guard !liveRequestInFlight else { return }
         liveRequestInFlight = true
         requestHistory { [weak self] result in
@@ -805,115 +829,51 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         }
     }
 
-    private func syncRemoteSQLiteSnapshotIfNeeded(force: Bool = false) {
-        guard !remoteSnapshotInFlight else { return }
-        guard force || Date().timeIntervalSince(lastRemoteSnapshotAttempt) >= 15 else { return }
-        remoteSnapshotInFlight = true
-        lastRemoteSnapshotAttempt = Date()
-
-        var components = URLComponents(url: sqliteSnapshotAPI, resolvingAgainstBaseURL: false)
-        components?.queryItems = [
-            URLQueryItem(name: "limit", value: "5000"),
-            URLQueryItem(name: "t", value: String(Int(Date().timeIntervalSince1970 * 1_000)))
-        ]
-        guard let url = components?.url else {
-            remoteSnapshotInFlight = false
-            return
-        }
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 15
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.setValue("application/json", forHTTPHeaderField: "accept")
-
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-            guard let self else { return }
-            defer {
-                DispatchQueue.main.async { self.remoteSnapshotInFlight = false }
-            }
-            guard error == nil,
-                  let response = response as? HTTPURLResponse,
-                  (200...299).contains(response.statusCode),
-                  let data,
-                  let object = try? JSONSerialization.jsonObject(with: data),
-                  let dictionary = object as? [String: Any],
-                  let rawRows = dictionary["history"] as? [[String: Any]]
-            else { return }
-
-            var rows: [RoundSample] = []
-            var seen = Set<String>()
-            for (index, row) in rawRows.enumerated() {
-                guard var value = Self.num(row["topCoefficient"])
-                    ?? Self.num(row["coefficient"]), value > 0 else { continue }
-                if value == 1 { value = 1.01 }
-                let identifier = Self.roundIdentifier(row, index: index, coefficient: value)
-                guard !seen.contains(identifier) else { continue }
-                seen.insert(identifier)
-                rows.append(RoundSample(id: identifier, coefficient: value, timestamp: Self.dateValue(row)))
-            }
-            rows.sort {
-                ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast)
-            }
-            guard !rows.isEmpty else { return }
-
-            DispatchQueue.main.async {
-                let before = self.sqliteStore.stats().total
-                let merged = self.mergeHistory(rows)
-                let added = max(0, self.sqliteStore.stats().total - before)
-                self.pushV0xFF3Rows(rows, total: merged.count, reloadIfNeeded: false)
-                if added > 0 {
-                    self.recordEvent("SQLite 24/7: импортировано +\(added), всего \(merged.count)")
-                    if self.tabs.selectedSegmentIndex == 0 {
-                        let autoState = self.autoBotEnabled ? "ВКЛ" : "ВЫКЛ"
-                        self.status.text = "● SQLite 24/7 синхронизирована • \(merged.count) раундов • авто \(autoState)"
-                        self.status.textColor = .systemGreen
-                    }
-                }
-            }
-        }.resume()
-    }
-
     private func acceptLiveRounds(_ fetched: [RoundSample]) {
-        guard let newest = fetched.first else { return }
-        let rounds = mergeHistory(fetched)
-        pushV0xFF3Rows(fetched, total: rounds.count, reloadIfNeeded: false)
-        liveLabel.text = String(format: "LIVE %.2fx", newest.coefficient)
-        liveLabel.textColor = .black
-        liveLabel.backgroundColor = newest.coefficient >= 10
-            ? UIColor(red: 1.0, green: 0.24, blue: 0.18, alpha: 1)
-            : UIColor(red: 0.72, green: 1.0, blue: 0.18, alpha: 1)
-        let autoState = autoBotEnabled ? "ВКЛ" : "ВЫКЛ"
-        status.text = "● LuckyJet LIVE • \(rounds.count) раундов • авто \(autoState)"
-        status.textColor = .white
-
-        guard let previousID = lastProcessedRoundID else {
-            lastProcessedRoundID = newest.id
-            recordEvent("LIVE подключён: \(rounds.count) раундов")
-            if autoBotEnabled {
-                renderCurrentMode(armSignal: true, origin: "автостарт")
-            } else {
-                renderCurrentMode(armSignal: false, origin: "LIVE")
-            }
+        guard let first = fetched.first else { return }
+        if sources.lastDeliveryCached {
+            status.text = "🔴 НЕТ СОЕДИНЕНИЯ • сохранённая история \(latestRounds.count)"
+            status.textColor = .systemOrange
+            liveLabel.text = "CACHE"
+            liveLabel.backgroundColor = .systemOrange
             return
         }
-
-        guard newest.id != previousID else { return }
-        let newRounds: [RoundSample]
-        if let previousIndex = rounds.firstIndex(where: { $0.id == previousID }), previousIndex > 0 {
-            newRounds = Array(rounds[..<previousIndex]).reversed()
-        } else {
-            newRounds = [newest]
+        let known = Set(latestRounds.map(\.id))
+        let newRows = fetched.filter { !known.contains($0.id) }
+        let switched = deliverySource != sources.activeID
+        let baseline = lastProcessedRoundID == nil || switched
+        let hasOverlap = fetched.contains { known.contains($0.id) }
+        let rounds = mergeHistory(fetched)
+        sources.setCache(rounds)
+        deliverySource = sources.activeID
+        pushV0xFF3Rows(fetched, total: rounds.count, reloadIfNeeded: false)
+        let newest = (!baseline ? newRows.first : nil) ?? first
+        if baseline || !newRows.isEmpty {
+            liveLabel.text = String(format: "LIVE %.2fx", newest.coefficient)
+            liveLabel.textColor = .black
+            liveLabel.backgroundColor = newest.coefficient >= 10 ? .systemRed : .systemGreen
         }
-
-        for round in newRounds {
+        let health = sources.health[sources.activeID]?.status ?? "ONLINE"
+        status.text = "● \(sources.activeID.uppercased()) \(health) • \(rounds.count) раундов • авто \(autoBotEnabled ? "ВКЛ" : "ВЫКЛ")"
+        status.textColor = health == "ONLINE" ? .systemGreen : .systemOrange
+        if baseline || !hasOverlap {
+            if pendingSignal != nil {
+                pendingSignal = nil
+                lastSettlement = "⚠️ Источник / покрытие изменены. Старый сигнал не оценён как WIN/LOSE."
+                recordEvent(lastSettlement)
+            }
+            lastProcessedRoundID = newest.id
+            recordEvent("LIVE: загружено \(rounds.count); начальная история не считается новыми попытками")
+            renderCurrentMode(armSignal: autoBotEnabled, origin: "подключение")
+            return
+        }
+        guard !newRows.isEmpty else { return }
+        for round in newRows.reversed() {
             settlePendingSignal(with: round)
+            recordEvent(String(format: "Round %@: %.2fx", round.id, round.coefficient))
         }
         lastProcessedRoundID = newest.id
-
-        if autoBotEnabled && pendingSignal == nil {
-            renderCurrentMode(armSignal: true, origin: "новый раунд")
-        } else {
-            renderCurrentMode(armSignal: false, origin: "обновление")
-        }
+        renderCurrentMode(armSignal: autoBotEnabled && pendingSignal == nil, origin: "новые раунды")
     }
 
     @objc private func tabChanged(_ sender: UISegmentedControl) {
@@ -950,7 +910,28 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         v0xFF3WebView.accessibilityElementsHidden = !isV0xFF3
 
         if isAllPredictor { webContainer.bringSubviewToFront(allPredictorWebView) }
-        if isGame { webContainer.bringSubviewToFront(gameWebView) }
+        if isGame {
+            if gameBrowser == nil {
+                let catalog = WebCatalog.load()
+                if let group = catalog.groups.first(where: { $0.name == "1WIN" }),
+                   let source = group.sources.first(where: { $0.url == gameURL.absoluteString }) ?? group.sources.first {
+                    let browser = ManagedBrowserController(source: source, group: group)
+                    addChild(browser)
+                    browser.view.translatesAutoresizingMaskIntoConstraints = false
+                    webContainer.addSubview(browser.view)
+                    NSLayoutConstraint.activate([
+                        browser.view.topAnchor.constraint(equalTo: webContainer.topAnchor),
+                        browser.view.bottomAnchor.constraint(equalTo: webContainer.bottomAnchor),
+                        browser.view.leadingAnchor.constraint(equalTo: webContainer.leadingAnchor),
+                        browser.view.trailingAnchor.constraint(equalTo: webContainer.trailingAnchor)
+                    ])
+                    browser.didMove(toParent: self)
+                    gameBrowser = browser
+                }
+            }
+            if let browser = gameBrowser { webContainer.bringSubviewToFront(browser.view) }
+        }
+        gameBrowser?.view.isHidden = !isGame
         if isV0xFF3 {
             webContainer.bringSubviewToFront(v0xFF3WebView)
             syncV0xFF3History()
@@ -980,14 +961,12 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 "id": round.id,
                 "coefficient": round.coefficient,
                 "ts": round.timestamp.map { $0.timeIntervalSince1970 * 1_000 } ?? (now - Double(index) * 12_000),
-                "estimated": round.timestamp == nil
+                "estimated": round.estimated == true || round.timestamp == nil
             ]
         }
         guard
             let rowsData = try? JSONSerialization.data(withJSONObject: rows),
-            let rowsJSON = String(data: rowsData, encoding: .utf8),
-            let sessionData = try? JSONSerialization.data(withJSONObject: sessionID, options: .fragmentsAllowed),
-            let sessionJSON = String(data: sessionData, encoding: .utf8)
+            let rowsJSON = String(data: rowsData, encoding: .utf8)
         else { return }
 
         let fingerprint = "\(total):\(sourceRows.first?.id ?? "empty")"
@@ -1001,7 +980,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
           const storeKey = 'v0xff3_browser_engine_v1';
           const markerKey = 'v0xff3_native_sync_marker';
           const incoming = \(rowsJSON);
-          localStorage.setItem('V0XFF3_LJ_SESSION_ID', \(sessionJSON));
+          // SESSION stays in native Keychain; it is not exposed to page scripts.
           if (typeof window.V0XFF3_NATIVE_PUSH === 'function') {
             return window.V0XFF3_NATIVE_PUSH(incoming, {source:'NATIVE SQLITE', total:\(total)});
           }
@@ -1027,11 +1006,13 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     @objc private func goBack() {
+        if tabs.selectedSegmentIndex == 2 { gameBrowser?.navigateBack(); return }
         guard let webView = selectedWebView, webView.canGoBack else { return }
         webView.goBack()
     }
 
     @objc private func reloadSelectedPage() {
+        if tabs.selectedSegmentIndex == 2 { gameBrowser?.refreshPage(); return }
         selectedWebView?.reload()
     }
 
@@ -1113,12 +1094,17 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 guard let self else { return }
                 switch result {
                 case .success(let rounds):
-                    let history = self.mergeHistory(rounds)
+                    self.acceptLiveRounds(rounds)
+                    let history = self.latestRounds
+                    if self.sources.lastDeliveryCached {
+                        self.output.text = "🔴 НЕТ СОЕДИНЕНИЯ • используется сохранённая история\n" + self.sources.summary()
+                        return
+                    }
                     let sqlite = self.sqliteStore.stats()
                     self.status.text = "● LIVE OK • API \(rounds.count), накоплено \(history.count)"
                     self.status.textColor = .systemGreen
                     let values = history.prefix(14).map { String(format: "%.2fx", $0.coefficient) }.joined(separator: " • ")
-                    self.output.text = "✅ LuckyJet подключён\n✅ session-id принят сервером\n✅ API вернул: \(rounds.count)\n✅ SQLite накоплено: \(sqlite.total)/100000\n\nПоследние:\n\(values)\n\nRocket Queen не проверялась и не изменялась."
+                    self.output.text = "✅ LuckyJet подключён\nИсточник: \(self.sources.activeID) • SESSION не проверялся отдельно\n✅ API вернул: \(rounds.count)\n✅ SQLite накоплено: \(sqlite.total)\n\nПоследние:\n\(values)\n\n\(self.sources.summary())"
                 case .failure(let error):
                     self.status.text = "● ошибка LuckyJet API"
                     self.status.textColor = .systemRed
@@ -1141,12 +1127,12 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         🟢 30x и выше: \(stats.x30)
         🟣 100x и выше: \(stats.x100)
         🔴 140x и выше: \(stats.x140)
-        📦 Ёмкость: до 100000 раундов
+        📦 Старая история сохраняется, автоматического удаления нет
 
         Последние:
         \(recent.isEmpty ? "пока ожидаем LIVE-данные" : recent)
 
-        Пока приложение активно, LuckyJet опрашивается каждые 2.5 секунды. История SQLite сохраняется между запусками и автоматически передаётся во вкладку V0xFF3.
+        Пока приложение активно, LuckyJet опрашивается каждую 1 секунду. История SQLite сохраняется между запусками и автоматически передаётся во вкладку V0xFF3.
         """
     }
 
@@ -1169,87 +1155,23 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         • KIBORG и V0xFF3 перенесены в нативные движки
         • исходники KIBORG.py и V0xFF3(1).py сохранены внутри IPA
         • новый раунд определяется по уникальному ID
-        • коэффициенты обновляются каждые 2.5 секунды
+        • коэффициенты обновляются каждую 1 секунду
         • сигнал проверяется в следующих завершённых раундах
         • при новом готовом сигнале звучит короткий звонок и вибрация
         • вкладки ПРОГНОЗЫ, 1WIN и V0xFF3 остаются загруженными
-        • SQLite автоматически хранит до 100000 раундов между запусками
+        • SQLite автоматически хранит историю без автоматического удаления между запусками
 
         KILLER и MONTANTE сохранены как мониторы: в исходниках для них нет опубликованной формулы, поэтому приложение не рисует выдуманные сигналы.
         """
     }
 
+    @objc private func openWEB() {
+        let controller = WebSourcesController(manager: sources)
+        present(UINavigationController(rootViewController: controller), animated: true)
+    }
+
     private func requestHistory(completion: @escaping (Result<[RoundSample], Error>) -> Void) {
-        var request = URLRequest(url: api)
-        request.timeoutInterval = 12
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.setValue(customerID, forHTTPHeaderField: "customer-id")
-        request.setValue(sessionID, forHTTPHeaderField: "session-id")
-        request.setValue("application/json", forHTTPHeaderField: "accept")
-
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            if let error {
-                completion(.failure(error))
-                return
-            }
-            if let response = response as? HTTPURLResponse, !(200...299).contains(response.statusCode) {
-                completion(.failure(NSError(domain: "BABEL", code: response.statusCode, userInfo: [NSLocalizedDescriptionKey: "LuckyJet API HTTP \(response.statusCode)"])))
-                return
-            }
-            guard let data else {
-                completion(.failure(NSError(domain: "BABEL", code: 2, userInfo: [NSLocalizedDescriptionKey: "LuckyJet API не вернул данные"])))
-                return
-            }
-
-            do {
-                let object = try JSONSerialization.jsonObject(with: data)
-                let rawRows: [[String: Any]]
-                if let rows = object as? [[String: Any]] {
-                    rawRows = rows
-                } else if let dictionary = object as? [String: Any] {
-                    rawRows = ["history", "data", "results", "items", "rounds"]
-                        .compactMap { dictionary[$0] as? [[String: Any]] }
-                        .first ?? []
-                } else {
-                    rawRows = []
-                }
-
-                var rounds: [RoundSample] = []
-                var seen = Set<String>()
-                for (index, row) in rawRows.enumerated() {
-                    var coefficient = Self.num(row["topCoefficient"])
-                        ?? Self.num(row["coefficient"])
-                        ?? Self.num(row["coef"])
-                        ?? Self.num(row["multiplier"])
-                    if coefficient == nil, let finals = row["finalValues"] as? [Any] {
-                        for value in finals.reversed() {
-                            if let number = Self.num(value) {
-                                coefficient = number
-                                break
-                            }
-                        }
-                    }
-                    guard var value = coefficient, value > 0 else { continue }
-                    if value == 1 { value = 1.01 }
-
-                    let identifier = Self.roundIdentifier(row, index: index, coefficient: value)
-                    guard !seen.contains(identifier) else { continue }
-                    seen.insert(identifier)
-                    rounds.append(RoundSample(
-                        id: identifier,
-                        coefficient: value,
-                        timestamp: Self.dateValue(row)
-                    ))
-                }
-
-                guard !rounds.isEmpty else {
-                    throw NSError(domain: "BABEL", code: 1, userInfo: [NSLocalizedDescriptionKey: "История LuckyJet пустая или имеет неизвестный формат"])
-                }
-                completion(.success(rounds))
-            } catch {
-                completion(.failure(error))
-            }
-        }.resume()
+        sources.fetch(completion: completion)
     }
 
     private static func roundIdentifier(_ row: [String: Any], index: Int, coefficient: Double) -> String {

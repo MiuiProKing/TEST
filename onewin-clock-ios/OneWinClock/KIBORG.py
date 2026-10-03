@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import math
 import os
+from source_manager import source_url, shared_manager, normalize_round as normalized_round
 import random
 import re
 import statistics
@@ -40,7 +41,7 @@ SESSION_ID = os.getenv("LJ_SESSION_ID", "00000000-0000-0000-0000-000000000000").
 CUSTOMER_ID = os.getenv("LJ_CUSTOMER_ID", "077dee8d-c923-4c02-9bee-757573662e69").strip()
 HISTORY_URL = os.getenv(
     "LJ_HISTORY_URL",
-    "https://crash-gateway-grm-cr.100hp.app/history"
+    source_url("legacy")
 ).strip()
 
 # Дополнительные LIVE-источники можно перечислить через запятую.
@@ -56,22 +57,22 @@ HISTORY_FALLBACKS = [
 PARSE_API_KEY = os.getenv("PARSE_API_KEY", "").strip()
 PARSE_HISTORY_URL = os.getenv(
     "PARSE_HISTORY_URL",
-    "https://api.parse.bot/scraper/dfcd37a4-42ee-4914-824f-2651f659871d/get_rounds_history"
+    source_url("parse")
 ).strip()
 
 # Официально документированный API AllPredictor.
 # Создай ключ в Dashboard AllPredictor и задай его как ALLPREDICTOR_API_KEY.
-ALLPREDICTOR_API_KEY = os.getenv("ALLPREDICTOR_API_KEY", "ap_c3739662fa0889c81929d0d0900e3793841f4c385cc6c152").strip()
+ALLPREDICTOR_API_KEY = os.getenv("ALLPREDICTOR_API_KEY", "").strip()
 ALLPREDICTOR_COEFFICIENTS_URL = os.getenv(
     "ALLPREDICTOR_COEFFICIENTS_URL",
-    "https://allpredictor.com/api/v1/luckyjet/coefficients?limit=20"
+    source_url("allpredictor")
 ).strip()
 ALLPREDICTOR_PREDICT_URL = os.getenv(
     "ALLPREDICTOR_PREDICT_URL",
     "https://allpredictor.com/api/v1/luckyjet/predict"
 ).strip()
 
-POLL_SECONDS = max(1.5, float(os.getenv("POLL_SECONDS", "2.5")))
+POLL_SECONDS = max(1, float(os.getenv("POLL_SECONDS", "1")))
 STATE_PATH = Path(os.getenv("BOT_STATE_FILE", "multiengine_state.json"))
 
 MIN_CONFIDENCE = int(os.getenv("MIN_CONFIDENCE", "70"))
@@ -183,56 +184,8 @@ class Forecast:
 
 
 def normalize_round(row: dict) -> Optional[Round]:
-    if not isinstance(row, dict):
-        return None
-
-    value = row.get("topCoefficient") if row.get("topCoefficient") is not None else row.get("top_coefficient")
-    try:
-        coef = float(value)
-    except (TypeError, ValueError):
-        coef = 0.0
-
-    if coef <= 0:
-        vals = row.get("finalValues") if row.get("finalValues") is not None else row.get("final_values")
-        if isinstance(vals, list):
-            for item in reversed(vals):
-                try:
-                    n = float(item)
-                except (TypeError, ValueError):
-                    continue
-                if n > 0:
-                    coef = n
-                    break
-
-    if coef <= 0:
-        for key in ("coefficient", "coef", "crash", "value", "multiplier"):
-            try:
-                n = float(row.get(key, 0))
-            except (TypeError, ValueError):
-                continue
-            if n > 0:
-                coef = n
-                break
-
-    if coef <= 0 or not math.isfinite(coef):
-        return None
-
-    if coef == 1:
-        coef = 1.01
-
-    rid = str(
-        row.get("id")
-        or row.get("roundId")
-        or row.get("round_id")
-        or row.get("round_id")
-        or row.get("hash")
-        or ""
-    )
-
-    if not rid:
-        rid = f"{coef:.2f}:{row.get('createdAt') or row.get('time') or ''}"
-
-    return Round(rid, round(coef, 2))
+    normal = normalized_round(row)
+    return Round(normal['id'], normal['coefficient']) if normal else None
 
 
 def _extract_rows(payload) -> list:
@@ -295,106 +248,8 @@ def _request_json(url: str, headers: dict, timeout: int = 12):
 
 
 def fetch_history(limit: int = 500) -> List[Round]:
-    """Получает LIVE-историю с автоматическим резервированием."""
-    errors = []
-
-    # 1. Основной источник + дополнительные URL.
-    urls = []
-    if HISTORY_URL:
-        urls.append(HISTORY_URL)
-    for u in HISTORY_FALLBACKS:
-        if u not in urls:
-            urls.append(u)
-
-    # Заголовки специально близки к обычному браузеру:
-    # некоторые шлюзы отвечают 403 на "голый" Python-запрос.
-    base_headers = {
-        "accept": "application/json, text/plain, */*",
-        "accept-language": "ru-RU,ru;q=0.9,en;q=0.8",
-        "cache-control": "no-cache",
-        "pragma": "no-cache",
-        "user-agent": (
-            "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) "
-            "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 "
-            "Mobile/15E148 Safari/604.1"
-        ),
-        "origin": "https://1win.com",
-        "referer": "https://1win.com/",
-    }
-
-    if CUSTOMER_ID:
-        base_headers["customer-id"] = CUSTOMER_ID
-        base_headers["x-customer-id"] = CUSTOMER_ID
-    if SESSION_ID:
-        base_headers["session-id"] = SESSION_ID
-        base_headers["x-session-id"] = SESSION_ID
-    if ALLPREDICTOR_API_KEY:
-        # Некоторые прокси/API принимают дополнительный ключ.
-        # Для самого game history главным остаются session/customer.
-        base_headers["X-API-Key"] = ALLPREDICTOR_API_KEY
-
-    for url in urls:
-        try:
-            payload = _request_json(url, dict(base_headers))
-            rows = _decode_history(payload, limit)
-            if rows:
-                return rows
-            errors.append(f"{url}: пустая история")
-        except Exception as exc:
-            errors.append(f"{url}: {exc}")
-
-    # 2. Официально документированный AllPredictor API.
-    # Используется, если задан ALLPREDICTOR_API_KEY.
-    if ALLPREDICTOR_API_KEY and ALLPREDICTOR_COEFFICIENTS_URL:
-        try:
-            payload = _request_json(
-                ALLPREDICTOR_COEFFICIENTS_URL,
-                {
-                    "accept": "application/json",
-                    "X-API-Key": ALLPREDICTOR_API_KEY,
-                    "user-agent": "LuckyJet-MultiEngine-RU/3.0",
-                },
-            )
-            rows = _decode_history(payload, limit)
-            if rows:
-                return rows
-            errors.append("AllPredictor API: пустая история")
-        except Exception as exc:
-            errors.append(f"AllPredictor API: {exc}")
-
-    # 3. Резервный управляемый LuckyJet API Parse.
-    # Он используется только если пользователь задал PARSE_API_KEY.
-    if PARSE_API_KEY and PARSE_HISTORY_URL:
-        try:
-            payload = _request_json(
-                PARSE_HISTORY_URL,
-                {
-                    "accept": "application/json",
-                    "X-API-Key": PARSE_API_KEY,
-                    "user-agent": "LuckyJet-MultiEngine-RU/2.0",
-                },
-            )
-            rows = _decode_history(payload, limit)
-            if rows:
-                return rows
-            errors.append("Parse API: пустая история")
-        except Exception as exc:
-            errors.append(f"Parse API: {exc}")
-
-    # Понятная сводка, а не один непонятный 403.
-    if not errors:
-        raise RuntimeError("LIVE-источники не настроены")
-
-    short = " | ".join(errors[-4:])
-    raise RuntimeError(
-        "Все LIVE-источники недоступны. "
-        + short
-        + (
-            " | Задай ALLPREDICTOR_API_KEY или PARSE_API_KEY для резервного API."
-            if not ALLPREDICTOR_API_KEY and not PARSE_API_KEY
-            else ""
-        )
-    )
+    rows = shared_manager().fetch(limit)
+    return [Round(row['id'], row['coefficient']) for row in rows]
 
 
 

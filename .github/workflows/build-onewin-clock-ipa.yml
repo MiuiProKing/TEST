@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - onewin-kiborg-v2-server-sqlite
+      - kiborg-v3.7-source-manager-web
     paths:
       - 'onewin-clock-ios/**'
       - '.github/workflows/build-onewin-clock-ipa.yml'
@@ -33,6 +34,19 @@ jobs:
           xcodebuild -version
           xcodebuild -project onewin-clock-ios/OneWinClock.xcodeproj -list
 
+      - name: Native source manager regression checks
+        run: |
+          set -euo pipefail
+          cp tests/native-main.swift "$RUNNER_TEMP/main.swift"
+          swiftc onewin-clock-ios/OneWinClock/SourceManager.swift "$RUNNER_TEMP/main.swift" -o "$RUNNER_TEMP/native-checks"
+          "$RUNNER_TEMP/native-checks"
+
+      - name: Python transport and migration checks
+        run: |
+          python3 -m venv "$RUNNER_TEMP/check-env"
+          "$RUNNER_TEMP/check-env/bin/pip" install requests
+          "$RUNNER_TEMP/check-env/bin/python" -m unittest discover -s tests -p test_source_manager.py -v
+
       - name: Build unsigned iPhone app
         run: |
           set -euo pipefail
@@ -57,14 +71,42 @@ jobs:
           mkdir -p "$RUNNER_TEMP/Payload"
           cp -R "$APP_PATH" "$RUNNER_TEMP/Payload/"
           cd "$RUNNER_TEMP"
-          /usr/bin/zip -qry "$GITHUB_WORKSPACE/KIBORG_V2-v3.6-SIGNALS-SQLite-unsigned.ipa" Payload
-          test -s "$GITHUB_WORKSPACE/KIBORG_V2-v3.6-SIGNALS-SQLite-unsigned.ipa"
-          ls -lh "$GITHUB_WORKSPACE/KIBORG_V2-v3.6-SIGNALS-SQLite-unsigned.ipa"
+          /usr/bin/zip -qry "$GITHUB_WORKSPACE/KIBORG_V2-v3.7-SOURCES-WEB-SQLite-unsigned.ipa" Payload
+          test -s "$GITHUB_WORKSPACE/KIBORG_V2-v3.7-SOURCES-WEB-SQLite-unsigned.ipa"
+          ls -lh "$GITHUB_WORKSPACE/KIBORG_V2-v3.7-SOURCES-WEB-SQLite-unsigned.ipa"
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: KIBORG_V2-v3.6-SIGNALS-SQLite-unsigned-IPA
-          path: KIBORG_V2-v3.6-SIGNALS-SQLite-unsigned.ipa
+          name: KIBORG_V2-v3.7-SOURCES-WEB-SQLite-unsigned-IPA
+          path: KIBORG_V2-v3.7-SOURCES-WEB-SQLite-unsigned.ipa
           if-no-files-found: error
           retention-days: 30
+
+      - name: Simulator launch and screenshot
+        run: |
+          set -euo pipefail
+          xcodebuild -project onewin-clock-ios/OneWinClock.xcodeproj -scheme OneWinClock -configuration Debug -sdk iphonesimulator -derivedDataPath "$RUNNER_TEMP/SimulatorBuild" CODE_SIGNING_ALLOWED=NO build > "$RUNNER_TEMP/simulator-build.log" 2>&1
+          xcrun simctl list devices available --json > "$RUNNER_TEMP/devices.json"
+          DEVICE=$(python3 -c 'import json,os; d=json.load(open(os.environ["RUNNER_TEMP"]+"/devices.json")); print(next(v["udid"] for a in d["devices"].values() for v in a if "iPhone" in v["name"] and v.get("isAvailable")))')
+          xcrun simctl boot "$DEVICE"
+          xcrun simctl bootstatus "$DEVICE" -b
+          xcrun simctl install "$DEVICE" "$RUNNER_TEMP/SimulatorBuild/Build/Products/Debug-iphonesimulator/OneWinClock.app"
+          xcrun simctl launch "$DEVICE" com.miuiproking.OneWinClock
+          sleep 15
+          xcrun simctl io "$DEVICE" screenshot "$GITHUB_WORKSPACE/kiborg-simulator.png"
+          xcrun simctl terminate "$DEVICE" com.miuiproking.OneWinClock
+          xcrun simctl launch "$DEVICE" com.miuiproking.OneWinClock
+          sleep 5
+          xcrun simctl io "$DEVICE" screenshot "$GITHUB_WORKSPACE/kiborg-relaunch.png"
+
+      - name: Upload simulator evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: KIBORG-v3.7-simulator-evidence
+          path: |
+            kiborg-simulator.png
+            kiborg-relaunch.png
+            ${{ runner.temp }}/simulator-build.log
+          if-no-files-found: warn

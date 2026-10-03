@@ -1,0 +1,67 @@
+import Foundation
+
+func check(_ condition: @autoclosure () -> Bool, _ message: String) {
+    guard condition() else { fatalError(message) }
+    print("PASS " + message)
+}
+let rows = SourceManager.normalize(["history":[
+    ["id":"a","coefficient":1],
+    ["id":"a","coefficient":1],
+    ["id":"b","coefficient":1],
+    ["id":"future","coefficient":100,"timestamp":"2099-01-01T00:00:00.123Z"],
+    ["id":"bad","coefficient":"nan"],
+    ["coefficient":2],
+    ["id":"final","finalValues":[1,9.8]],
+    ["id":"time","coefficient":3,"timestamp":1700000000123]
+]],source:"main")
+check(rows.count == 5,"valid rows retained, ID dedup, invalid values rejected")
+check(rows[0].coefficient == 1,"1.00 is not rewritten")
+check(rows[1].id == "b","equal coefficients from distinct rounds survive")
+check(rows.first(where:{$0.id=="future"})?.estimated == true,"future clock is flagged; coefficient is retained")
+check(rows.first(where:{$0.id=="final"})?.coefficient == 9.8,"finalValues parsed")
+check(rows.first(where:{$0.id=="time"})?.timestamp != nil,"millisecond timestamp parsed")
+let old = "[{\"id\":\"saved\",\"coefficient\":2,\"timestamp\":0}]".data(using:.utf8)!
+check((try? JSONDecoder().decode([RoundSample].self,from:old))?.first?.id == "saved","3.6 JSON cache remains readable")
+
+final class MockProtocol: URLProtocol {
+    static var requests: [URLRequest] = []
+    static var offline = false
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        MockProtocol.requests.append(request)
+        if MockProtocol.offline || request.url!.host == "main.invalid" {
+            client?.urlProtocol(self,didFailWithError:URLError(.timedOut));return
+        }
+        let response = HTTPURLResponse(url:request.url!,statusCode:200,httpVersion:nil,headerFields:["Content-Type":"application/json"])!
+        client?.urlProtocol(self,didReceive:response,cacheStoragePolicy:.notAllowed)
+        client?.urlProtocol(self,didLoad:"{\"history\":[{\"id\":\"new\",\"coefficient\":4.2}]}".data(using:.utf8)!)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+let cfg = SourcesConfig(poll_seconds:1,full_sync_seconds:30,stale_seconds:120,retry_seconds:[1,2,5,10,30],sources:[
+    DataSource(id:"main",name:"MAIN",url:"https://main.invalid/",type:"snapshot",enabled:true,priority:0,timeout:5),
+    DataSource(id:"reserve",name:"RESERVE",url:"https://reserve.invalid/",type:"snapshot",enabled:true,priority:1,timeout:5),
+    DataSource(id:"local",name:"SQLite",url:"local://cache",type:"cache",enabled:true,priority:99,timeout:0)
+])
+let sessionConfig = URLSessionConfiguration.ephemeral; sessionConfig.protocolClasses = [MockProtocol.self]
+let manager = SourceManager(config:cfg,session:URLSession(configuration:sessionConfig),monitorNetwork:false)
+manager.selection = "AUTO"
+func fetch(_ force: Bool = false) -> [RoundSample] {
+    var finished = false; var output: [RoundSample] = []
+    manager.fetch(force:force) { result in output = (try? result.get()) ?? []; finished = true }
+    let deadline = Date().addingTimeInterval(5)
+    while !finished && Date() < deadline { RunLoop.current.run(until:Date().addingTimeInterval(0.01)) }
+    check(finished,"async fetch completed within bound")
+    return output
+}
+check(fetch().first?.coefficient == 4.2,"native fallback returns reserve round")
+check(manager.activeID == "reserve","native reserve selected")
+check(MockProtocol.requests.allSatisfy { $0.value(forHTTPHeaderField:"session-id") == nil },"SESSION never sent to public source")
+MockProtocol.offline = true
+check(fetch(true).first?.id == "new" && manager.lastDeliveryCached,"offline serves labelled cache")
+MockProtocol.offline = false
+check(fetch(true).first?.id == "new" && !manager.lastDeliveryCached,"connection recovery restores HTTP source")
+manager.selection = "AUTO"
+print("Native transport checks passed")
