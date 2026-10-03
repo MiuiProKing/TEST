@@ -163,6 +163,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private let sources = SourceManager()
     private var deliverySource = ""
     private var gameBrowser: ManagedBrowserController?
+    private let webBrowserPool = WebBrowserPool()
     private var auditPresented = false
     private let webButton = UIButton(type: .system)
     private var allPredictorURL: URL { URL(string: WebCatalog.load().source("old_predictor")!.url)! }
@@ -253,7 +254,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         #if DEBUG
-        if !auditPresented && ProcessInfo.processInfo.arguments.contains("--audit-web") {
+        if !auditPresented && (ProcessInfo.processInfo.arguments.contains("--audit-web") || ProcessInfo.processInfo.arguments.contains("--audit-navigation")) {
             auditPresented = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.openWEB() }
         }
@@ -813,6 +814,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 if let group = catalog.groups.first(where: { $0.name == "1WIN" }),
                    let source = group.sources.first(where: { $0.url == gameURL.absoluteString }) ?? group.sources.first {
                     let browser = ManagedBrowserController(source: source, group: group)
+                    browser.onSites = { [weak self] in self?.openWEB() }
                     addChild(browser)
                     browser.view.translatesAutoresizingMaskIntoConstraints = false
                     webContainer.addSubview(browser.view)
@@ -1068,8 +1070,10 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     @objc private func openWEB() {
-        let controller = WebSourcesController(manager: sources)
-        present(UINavigationController(rootViewController: controller), animated: true)
+        let controller = WebSourcesController(manager: sources, pool: webBrowserPool)
+        let navigation = UINavigationController(rootViewController: controller)
+        navigation.modalPresentationStyle = .fullScreen
+        present(navigation, animated: true)
     }
 
     private func requestHistory(completion: @escaping (Result<[RoundSample], Error>) -> Void) {
