@@ -69,7 +69,7 @@ ALLPREDICTOR_COEFFICIENTS_URL = os.getenv(
 ).strip()
 ALLPREDICTOR_PREDICT_URL = os.getenv(
     "ALLPREDICTOR_PREDICT_URL",
-    "https://allpredictor.com/api/v1/luckyjet/predict"
+    source_url("predict")
 ).strip()
 
 POLL_SECONDS = max(1, float(os.getenv("POLL_SECONDS", "1")))

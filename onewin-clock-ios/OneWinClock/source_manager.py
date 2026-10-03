@@ -13,6 +13,8 @@ ROOT = Path(__file__).resolve().parent
 CONFIG = json.loads((ROOT / 'sources.json').read_text(encoding='utf-8'))
 
 def source_url(source_id):
+    if source_id in CONFIG.get('endpoints',{}):
+        return CONFIG['endpoints'][source_id]
     return next(s['url'] for s in CONFIG['sources'] if s['id'] == source_id)
 
 def rows_of(value):
@@ -80,6 +82,13 @@ def migrate_rounds(con):
     for name,kind in [('source',"TEXT NOT NULL DEFAULT 'legacy'"),('created_at','TEXT'),('estimated','INTEGER NOT NULL DEFAULT 0')]:
         if name not in columns:
             con.execute(f'ALTER TABLE rounds ADD COLUMN {name} {kind}')
+    # Expose a unified schema without renaming columns used by old predictors.
+    aliases = {'id':('round_id','TEXT'),'round_id':('id','TEXT'),
+               'coefficient':('coef','REAL'),'timestamp':('api_time' if 'api_time' in columns else 'ts','TEXT')}
+    for target,(original,kind) in aliases.items():
+        if target not in columns and original in columns:
+            con.execute(f'ALTER TABLE rounds ADD COLUMN {target} {kind}')
+            con.execute(f'UPDATE rounds SET {target}={original}')
     con.execute('CREATE INDEX IF NOT EXISTS idx_rounds_source_v37 ON rounds(source)')
     con.commit()
 

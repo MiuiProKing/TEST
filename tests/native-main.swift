@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 
 func check(_ condition: @autoclosure () -> Bool, _ message: String) {
     guard condition() else { fatalError(message) }
@@ -65,3 +66,22 @@ MockProtocol.offline = false
 check(fetch(true).first?.id == "new" && !manager.lastDeliveryCached,"connection recovery restores HTTP source")
 manager.selection = "AUTO"
 print("Native transport checks passed")
+
+let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true)
+defer { try? FileManager.default.removeItem(at:directory) }
+var db: OpaquePointer?
+check(sqlite3_open(directory.appendingPathComponent("v0xff3-rounds.sqlite3").path,&db) == SQLITE_OK,"legacy database created")
+sqlite3_exec(db,"CREATE TABLE rounds (seq INTEGER PRIMARY KEY AUTOINCREMENT,round_id TEXT NOT NULL UNIQUE,coefficient REAL NOT NULL,timestamp REAL)",nil,nil,nil)
+sqlite3_exec(db,"INSERT INTO rounds(round_id,coefficient,timestamp) VALUES('legacy',100,1700000000)",nil,nil,nil)
+sqlite3_close(db)
+let store = SQLiteRoundStore(directory:directory)
+check(store.available && store.load().first?.id == "legacy","native migration retains real 3.6 schema and history")
+store.upsert([RoundSample(id:"new",coefficient:1,timestamp:nil,source:"main",estimated:true)])
+store.upsert([RoundSample(id:"new",coefficient:1,timestamp:nil,source:"reserve")])
+check(store.stats().total == 2,"native INSERT OR IGNORE deduplicates source switch")
+check(store.stats().x100 == 1,"legacy high-coefficient statistics retained")
+check(store.load().first?.estimated == true,"clock-quality metadata stored")
+let reopened = SQLiteRoundStore(directory:directory)
+check(reopened.available && reopened.stats().total == 2,"second migration and reopen retain both rounds")
+print("Native SQLite checks passed")

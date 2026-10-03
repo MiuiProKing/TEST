@@ -38,7 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           cp tests/native-main.swift "$RUNNER_TEMP/main.swift"
-          swiftc onewin-clock-ios/OneWinClock/SourceManager.swift "$RUNNER_TEMP/main.swift" -o "$RUNNER_TEMP/native-checks"
+          swiftc onewin-clock-ios/OneWinClock/SourceManager.swift onewin-clock-ios/OneWinClock/SQLiteRoundStore.swift "$RUNNER_TEMP/main.swift" -o "$RUNNER_TEMP/native-checks"
           "$RUNNER_TEMP/native-checks"
 
       - name: Python transport and migration checks
@@ -99,6 +99,10 @@ jobs:
           xcrun simctl launch "$DEVICE" com.miuiproking.OneWinClock
           sleep 5
           xcrun simctl io "$DEVICE" screenshot "$GITHUB_WORKSPACE/kiborg-relaunch.png"
+          xcrun simctl terminate "$DEVICE" com.miuiproking.OneWinClock
+          xcrun simctl launch "$DEVICE" com.miuiproking.OneWinClock --audit-web
+          sleep 10
+          xcrun simctl io "$DEVICE" screenshot "$GITHUB_WORKSPACE/kiborg-web.png"
 
       - name: Upload simulator evidence
         if: always()
@@ -108,5 +112,6 @@ jobs:
           path: |
             kiborg-simulator.png
             kiborg-relaunch.png
+            kiborg-web.png
             ${{ runner.temp }}/simulator-build.log
           if-no-files-found: warn

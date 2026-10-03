@@ -238,9 +238,9 @@ def init_db():
 def save_round(row):
     with db_lock, db_connect() as con:
         con.execute(
-            "INSERT OR IGNORE INTO rounds(id, coef, api_time, received_at, source, created_at, estimated) VALUES(?,?,?,?,?,?,?)",
+            "INSERT OR IGNORE INTO rounds(id, coef, api_time, received_at, source, created_at, estimated, round_id, coefficient, timestamp) VALUES(?,?,?,?,?,?,?,?,?,?)",
             (row['id'], row['coef'], row.get('api_time'), now_kyiv().isoformat(),
-             row.get('source','legacy'), now_kyiv().isoformat(), int(row.get('estimated',False))),
+             row.get('source','legacy'), now_kyiv().isoformat(), int(row.get('estimated',False)), row['id'], row['coef'], row.get('api_time')),
         )
 
 

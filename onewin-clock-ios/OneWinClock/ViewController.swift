@@ -5,116 +5,6 @@ import SQLite3
 
 
 
-private let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-
-private final class SQLiteRoundStore {
-    private var connection: OpaquePointer?
-    let path: String
-
-    init() {
-        let manager = FileManager.default
-        let directory = (try? manager.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )) ?? manager.temporaryDirectory
-        try? manager.createDirectory(at: directory, withIntermediateDirectories: true)
-        path = directory.appendingPathComponent("v0xff3-rounds.sqlite3").path
-
-        if sqlite3_open_v2(path, &connection, SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK {
-            sqlite3_exec(connection, "PRAGMA journal_mode=WAL", nil, nil, nil)
-            sqlite3_exec(connection, "PRAGMA synchronous=NORMAL", nil, nil, nil)
-            sqlite3_exec(connection, """
-                CREATE TABLE IF NOT EXISTS rounds (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    round_id TEXT NOT NULL UNIQUE,
-                    coefficient REAL NOT NULL,
-                    timestamp REAL
-                )
-                """, nil, nil, nil)
-            let migration = [
-                "ALTER TABLE rounds ADD COLUMN source TEXT NOT NULL DEFAULT 'legacy'",
-                "ALTER TABLE rounds ADD COLUMN created_at REAL",
-                "ALTER TABLE rounds ADD COLUMN estimated INTEGER NOT NULL DEFAULT 0"
-            ]
-            for sql in migration { sqlite3_exec(connection, sql, nil, nil, nil) }
-            sqlite3_exec(connection, "CREATE INDEX IF NOT EXISTS idx_rounds_source ON rounds(source)", nil, nil, nil)
-            sqlite3_exec(connection, "CREATE INDEX IF NOT EXISTS idx_rounds_seq ON rounds(seq DESC)", nil, nil, nil)
-        } else {
-            connection = nil
-        }
-    }
-
-    deinit {
-        if let connection { sqlite3_close(connection) }
-    }
-
-    func upsert(_ rounds: [RoundSample]) {
-        guard let connection, !rounds.isEmpty else { return }
-        sqlite3_exec(connection, "BEGIN IMMEDIATE", nil, nil, nil)
-        var statement: OpaquePointer?
-        let sql = "INSERT OR IGNORE INTO rounds(round_id, coefficient, timestamp, source, created_at, estimated) VALUES(?,?,?,?,?,?)"
-        guard sqlite3_prepare_v2(connection, sql, -1, &statement, nil) == SQLITE_OK else {
-            sqlite3_exec(connection, "ROLLBACK", nil, nil, nil)
-            return
-        }
-        defer { sqlite3_finalize(statement) }
-        for round in rounds.reversed() {
-            sqlite3_reset(statement)
-            sqlite3_clear_bindings(statement)
-            sqlite3_bind_text(statement, 1, (round.id as NSString).utf8String, -1, sqliteTransient)
-            sqlite3_bind_double(statement, 2, round.coefficient)
-            if let timestamp = round.timestamp {
-                sqlite3_bind_double(statement, 3, timestamp.timeIntervalSince1970)
-            } else {
-                sqlite3_bind_null(statement, 3)
-            }
-            sqlite3_bind_text(statement, 4, ((round.source ?? "legacy") as NSString).utf8String, -1, sqliteTransient)
-            sqlite3_bind_double(statement, 5, Date().timeIntervalSince1970)
-            sqlite3_bind_int(statement, 6, round.estimated == true ? 1 : 0)
-            if sqlite3_step(statement) != SQLITE_DONE {
-                sqlite3_exec(connection, "ROLLBACK", nil, nil, nil)
-                return
-            }
-        }
-        sqlite3_exec(connection, "COMMIT", nil, nil, nil)
-    }
-
-    func load(limit: Int = 5_000) -> [RoundSample] {
-        guard let connection else { return [] }
-        var statement: OpaquePointer?
-        let safeLimit = max(1, min(limit, 10_000))
-        guard sqlite3_prepare_v2(connection, "SELECT round_id, coefficient, timestamp, source, estimated FROM rounds ORDER BY seq DESC LIMIT ?", -1, &statement, nil) == SQLITE_OK else { return [] }
-        defer { sqlite3_finalize(statement) }
-        sqlite3_bind_int(statement, 1, Int32(safeLimit))
-        var rows: [RoundSample] = []
-        while sqlite3_step(statement) == SQLITE_ROW {
-            guard let rawID = sqlite3_column_text(statement, 0) else { continue }
-            let id = String(cString: rawID)
-            let coefficient = sqlite3_column_double(statement, 1)
-            let timestamp: Date? = sqlite3_column_type(statement, 2) == SQLITE_NULL
-                ? nil
-                : Date(timeIntervalSince1970: sqlite3_column_double(statement, 2))
-            let source = sqlite3_column_text(statement, 3).map { String(cString: $0) }
-            rows.append(RoundSample(id: id, coefficient: coefficient, timestamp: timestamp, source: source, estimated: sqlite3_column_int(statement, 4) != 0))
-        }
-        return rows
-    }
-
-    func stats() -> (total: Int, x30: Int, x100: Int, x140: Int) {
-        guard let connection else { return (0, 0, 0, 0) }
-        func count(_ whereClause: String = "") -> Int {
-            var statement: OpaquePointer?
-            guard sqlite3_prepare_v2(connection, "SELECT COUNT(*) FROM rounds \(whereClause)", -1, &statement, nil) == SQLITE_OK else { return 0 }
-            defer { sqlite3_finalize(statement) }
-            guard sqlite3_step(statement) == SQLITE_ROW else { return 0 }
-            return Int(sqlite3_column_int64(statement, 0))
-        }
-        return (count(), count("WHERE coefficient>=30"), count("WHERE coefficient>=100"), count("WHERE coefficient>=140"))
-    }
-}
-
 private enum EngineMode: Int, CaseIterable {
     case fusion
     case allPredictor
@@ -273,14 +163,15 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private let sources = SourceManager()
     private var deliverySource = ""
     private var gameBrowser: ManagedBrowserController?
+    private var auditPresented = false
     private let webButton = UIButton(type: .system)
-    private let allPredictorURL = URL(string: "https://miuiproking.github.io/luckyjet-telegram-mini-app/index.html?v=20260823-3")!
+    private var allPredictorURL: URL { URL(string: WebCatalog.load().source("old_predictor")!.url)! }
     private var gameURL: URL {
         let catalog = WebCatalog.load()
         let id = UserDefaults.standard.string(forKey: "kiborg.web.selected.1WIN") ?? "1win_main"
         return URL(string: (catalog.source(id) ?? catalog.source("1win_main"))!.url)!
     }
-    private let v0xFF3URL = URL(string: "https://miuiproking.github.io/luckyjet-telegram-mini-app/v0xff3.html?v=20260827-6")!
+    private var v0xFF3URL: URL { URL(string: WebCatalog.load().source("v0xff3")!.url)! }
 
     private let selectedTabKey = "onewinclock.selectedTab.v3"
     private let selectedModeKey = "onewinclock.selectedMode.v4"
@@ -361,6 +252,12 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        #if DEBUG
+        if !auditPresented && ProcessInfo.processInfo.arguments.contains("--audit-web") {
+            auditPresented = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.openWEB() }
+        }
+        #endif
         if let browser = gameBrowser, browser.homeURL != gameURL.absoluteString {
             browser.willMove(toParent: nil); browser.view.removeFromSuperview(); browser.removeFromParent()
             gameBrowser = nil
@@ -1021,7 +918,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         UserDefaults.standard.set(autoBotEnabled, forKey: autoBotKey)
         updateAutoButton()
         recordEvent("Автобот \(autoBotEnabled ? "включён" : "выключен")")
-        if autoBotEnabled && !latestRounds.isEmpty && pendingSignal == nil {
+        if autoBotEnabled && !latestRounds.isEmpty && pendingSignal == nil && sources.activeID != "local" && !sources.lastDeliveryCached {
             renderCurrentMode(armSignal: true, origin: "автобот включён")
         } else {
             renderCurrentMode(armSignal: false, origin: "настройка")
@@ -1122,7 +1019,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         output.text = """
         💾 SQLite V0xFF3
 
-        ✅ База подключена автоматически
+        \(sqliteStore.available ? "🟢 SQLite ONLINE" : "🔴 SQLite ERROR: " + (sqliteStore.lastError ?? "нет доступа"))
         ✅ Всего сохранено: \(stats.total) раундов
         🟢 30x и выше: \(stats.x30)
         🟣 100x и выше: \(stats.x100)
@@ -1137,6 +1034,11 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     @objc private func getSignal() {
+        guard sources.activeID != "local", !sources.lastDeliveryCached else {
+            status.text = "⚠️ Сначала требуется свежая LIVE-история"
+            pollLiveCoefficient()
+            return
+        }
         guard !latestRounds.isEmpty else {
             status.text = "● получаю историю…"
             pollLiveCoefficient()
@@ -1340,6 +1242,9 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             lines.append("\nЖУРНАЛ\n" + activityLog.prefix(4).joined(separator: "\n"))
         }
         lines.append("\n⚠️ Статистическая модель, результат не гарантируется.")
+        if latestRounds.prefix(500).contains(where: { $0.estimated == true }) {
+            lines.insert("⚠️ Время источника приблизительное. Временные окна не подтверждены. Оценка алгоритма не является вероятностью выигрыша.\n", at: 0)
+        }
         output.text = lines.joined(separator: "\n")
         status.text = "● LuckyJet LIVE • \(latestRounds.count) раундов • авто \(autoBotEnabled ? "ВКЛ" : "ВЫКЛ")"
         status.textColor = .white

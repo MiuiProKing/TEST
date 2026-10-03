@@ -258,8 +258,8 @@ def fetch_history() -> List[Round]:
 
 def save_round(rr: Round) -> bool:
     cursor = DB.execute(
-        "INSERT OR IGNORE INTO rounds(round_id, coefficient, ts, source, created_at, estimated) VALUES(?,?,?,?,?,?)",
-        (rr.round_id, rr.coefficient, rr.ts.isoformat(), rr.source, now().isoformat(), int(rr.estimated)),
+        "INSERT OR IGNORE INTO rounds(round_id, coefficient, ts, source, created_at, estimated, id, timestamp) VALUES(?,?,?,?,?,?,?,?)",
+        (rr.round_id, rr.coefficient, rr.ts.isoformat(), rr.source, now().isoformat(), int(rr.estimated), rr.round_id, rr.ts.isoformat()),
     )
     DB.commit()
     return cursor.rowcount > 0

@@ -66,5 +66,10 @@
       "priority": 99,
       "timeout": 0
     }
-  ]
+  ],
+  "endpoints": {
+    "predict": "https://allpredictor.com/api/v1/luckyjet/predict",
+    "telegram": "https://api.telegram.org",
+    "legacy_origin": "https://1win.com/"
+  }
 }
