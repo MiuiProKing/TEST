@@ -52,7 +52,7 @@ final class WebSourcesController: UITableViewController, UISearchResultsUpdating
     #endif
     private let search = UISearchController(searchResultsController:nil)
     private var groups: [WebGroup] {
-        let query = (search.searchBar.text ?? "").trimmingCharacters(in:.whitespacesAndNewlines)
+        let query = settingsExpanded ? "" : (search.searchBar.text ?? "").trimmingCharacters(in:.whitespacesAndNewlines)
         return catalog.groups.compactMap { group in
             let sources = group.sources.filter { source in
                 source.enabled && (query.isEmpty || (source.name + " " + source.url + " " + group.name).localizedCaseInsensitiveContains(query))
@@ -98,9 +98,16 @@ final class WebSourcesController: UITableViewController, UISearchResultsUpdating
     func updateSearchResults(for searchController: UISearchController) { tableView.reloadData() }
     @objc private func close() { dismiss(animated:true) }
     @objc private func toggleSettings() {
+        settingsExpanded.toggle()
         search.isActive = false; search.searchBar.text = ""
-        settingsExpanded.toggle(); tableView.reloadData()
-        if settingsExpanded { tableView.scrollToRow(at:IndexPath(row:0,section:groups.count),at:.top,animated:true) }
+        navigationItem.searchController = settingsExpanded ? nil : search
+        tableView.reloadData()
+        if settingsExpanded {
+            DispatchQueue.main.asyncAfter(deadline:.now()+0.3) { [weak self] in
+                guard let self, self.settingsExpanded else { return }
+                self.tableView.scrollToRow(at:IndexPath(row:0,section:self.groups.count),at:.top,animated:false)
+            }
+        }
     }
     @objc private func refresh() {
         tableView.reloadData(); refreshControl?.endRefreshing()
@@ -303,7 +310,7 @@ final class ManagedBrowserController: UIViewController, WKNavigationDelegate, WK
     required init?(coder: NSCoder) { fatalError("init(coder:)") }
     deinit { timeout?.cancel(); web.stopLoading() }
     override func viewDidLoad() {
-        super.viewDidLoad(); view.backgroundColor = .systemBackground; title = source.name
+        super.viewDidLoad(); overrideUserInterfaceStyle = .dark; view.backgroundColor = .systemBackground; title = source.name
         web.navigationDelegate = self; web.uiDelegate = self
         web.allowsBackForwardNavigationGestures = true
         sourceButton.titleLabel?.font = .boldSystemFont(ofSize:14)
@@ -421,8 +428,8 @@ final class ManagedBrowserController: UIViewController, WKNavigationDelegate, WK
             let directory = FileManager.default.urls(for:.documentDirectory,in:.userDomainMask)[0].appendingPathComponent("web-audit")
             try? FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true)
             let file = directory.appendingPathComponent(source.id + ".html")
-            try? "<html><meta name='viewport' content='width=device-width'><body style='background:#101827;color:white;font:22px -apple-system;padding:24px'><h1>\(source.name)</h1><p>Локальная проверка WEB-навигации</p><a href='detail.html'>Открыть следующую страницу</a><div style='height:1600px'></div></body></html>".write(to:file,atomically:true,encoding:.utf8)
-            try? "<html><meta name='viewport' content='width=device-width'><body style='background:#101827;color:white;font:22px -apple-system;padding:24px'><h1>Вторая страница</h1><p>Кнопка «Назад» возвращает внутри сайта.</p></body></html>".write(to:directory.appendingPathComponent("detail.html"),atomically:true,encoding:.utf8)
+            try? "<html><meta charset='utf-8'><meta name='viewport' content='width=device-width'><body style='background:#101827;color:white;font:22px -apple-system;padding:24px'><h1>\(source.name)</h1><p>Локальная проверка WEB-навигации</p><a href='detail.html'>Открыть следующую страницу</a><div style='height:1600px'></div></body></html>".write(to:file,atomically:true,encoding:.utf8)
+            try? "<html><meta charset='utf-8'><meta name='viewport' content='width=device-width'><body style='background:#101827;color:white;font:22px -apple-system;padding:24px'><h1>Вторая страница</h1><p>Кнопка «Назад» возвращает внутри сайта.</p></body></html>".write(to:directory.appendingPathComponent("detail.html"),atomically:true,encoding:.utf8)
             web.loadFileURL(file,allowingReadAccessTo:directory); return
         }
         #endif
@@ -551,7 +558,13 @@ extension WebSourcesController {
             search.searchBar.text = "ХИЩНИК"; updateSearchResults(for:search)
             auditWrite("search",groups.count == 1 && groups.first?.sources.map(\.id) == ["bog"])
         case "settings":
-            toggleSettings(); auditWrite("settings",settingsExpanded && groups.count == 3 && tableView(tableView,numberOfRowsInSection:groups.count) == 3)
+            toggleSettings()
+            DispatchQueue.main.asyncAfter(deadline:.now()+0.5) { [weak self] in
+                guard let self else { return }
+                let row = IndexPath(row:0,section:self.groups.count)
+                let visible = self.tableView.indexPathsForVisibleRows?.contains(row) == true
+                self.auditWrite("settings",self.settingsExpanded && self.groups.count == 3 && visible && self.navigationItem.searchController == nil)
+            }
         case "picker":
             auditWrite("picker",auditInitialBrowser?.auditPickerCount == 12)
         case "reserve":
