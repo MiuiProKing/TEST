@@ -165,6 +165,9 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private var gameBrowser: ManagedBrowserController?
     private let webBrowserPool = WebBrowserPool()
     private var auditPresented = false
+    #if DEBUG
+    private var auditWebController: WebSourcesController?
+    #endif
     private let webButton = UIButton(type: .system)
     private var allPredictorURL: URL { URL(string: WebCatalog.load().source("old_predictor")!.url)! }
     private var gameURL: URL {
@@ -1077,6 +1080,9 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
 
     @objc private func openWEB() {
         let controller = WebSourcesController(manager: sources, pool: webBrowserPool)
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--audit-navigation") { auditWebController = controller }
+        #endif
         let navigation = UINavigationController(rootViewController: controller)
         navigation.overrideUserInterfaceStyle = .dark
         navigation.modalPresentationStyle = .fullScreen

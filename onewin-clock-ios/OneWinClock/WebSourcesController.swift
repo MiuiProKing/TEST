@@ -569,7 +569,8 @@ extension WebSourcesController {
     }
     private func startNavigationAudit() {
         auditWrite("list",catalog.groups.flatMap(\.sources).count == 12 && groups.count == 3 && !settingsExpanded)
-        auditTimer = Timer.scheduledTimer(withTimeInterval:0.25,repeats:true) { [weak self] _ in self?.auditReadCommand() }
+        let timer = Timer(timeInterval:0.25,repeats:true) { [weak self] _ in self?.auditReadCommand() }
+        auditTimer = timer; RunLoop.main.add(timer,forMode:.common)
     }
     private func auditReadCommand() {
         let file = auditDirectory.appendingPathComponent("navigation-command.txt")
