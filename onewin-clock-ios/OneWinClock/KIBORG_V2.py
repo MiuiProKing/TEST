@@ -28,6 +28,7 @@ import math
 import html
 import sqlite3
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from statistics import mean, median, pstdev
 from zoneinfo import ZoneInfo
@@ -171,12 +172,17 @@ def save_state():
 # ============================================================
 # SQLITE — ФАКТИЧЕСКИЕ РАУНДЫ, СИГНАЛЫ И ОБУЧЕНИЕ
 # ============================================================
+@contextmanager
 def db_connect():
     con = sqlite3.connect(DB_PATH, timeout=30)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA synchronous=NORMAL")
-    return con
+    try:
+        with con:
+            yield con
+    finally:
+        con.close()
 
 
 def init_db():
