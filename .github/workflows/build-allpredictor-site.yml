@@ -1,0 +1,23 @@
+name: Build AllPredictor website IPA
+on:
+  workflow_dispatch:
+  push:
+    branches: [allpredictor-site-ipa]
+  pull_request:
+    paths: ['allpredictor-ios/**', '.github/workflows/build-allpredictor-site.yml']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build arm64 IPA with site icon
+        run: bash allpredictor-ios/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AllPredictor-IPA
+          path: allpredictor-ios/build/AllPredictor.ipa
+          if-no-files-found: error
+          retention-days: 30
