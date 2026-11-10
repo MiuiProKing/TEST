@@ -1,0 +1,25 @@
+name: Verify V7 Time and Survival
+on:
+  push:
+    paths:
+      - 'god-preditor-v7-time-survival/**'
+      - '.github/workflows/v7-survival-checks.yml'
+  pull_request:
+    paths:
+      - 'god-preditor-v7-time-survival/**'
+      - '.github/workflows/v7-survival-checks.yml'
+permissions:
+  contents: read
+jobs:
+  statistics-and-data:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: |
+          for file in god-preditor-v7-time-survival/*.mjs; do
+            node --check "$file"
+          done
+          node --test god-preditor-v7-time-survival/tests/*.test.mjs
