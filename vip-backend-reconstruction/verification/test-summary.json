@@ -1,0 +1,9 @@
+{
+  "command": "node --test tests/*.test.mjs",
+  "passed": 30,
+  "failed": 0,
+  "localRunUtcDate": "2026-11-11",
+  "networkWrites": false,
+  "wagersPlaced": false,
+  "note": "Real-source JSON is a recorded integration test, not a current prediction."
+}

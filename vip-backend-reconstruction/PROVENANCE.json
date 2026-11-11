@@ -1,0 +1,19 @@
+{
+  "originalPrivateServerSourceRecovered": false,
+  "reconstructionCreatedUtcDate": "2026-11-10",
+  "packagedUtcDate": "2026-11-11",
+  "vendor": [
+    {
+      "path": "vendor/basic-original.mjs",
+      "source": "https://historique-luckyjet.shop/assets/PredictionPanel-BwmEfDz4.js",
+      "sha256": "6f7874566635226ca05d563e23f4437e9371ea548fcc30e7d77e7a4d18dc417d",
+      "description": "Public BASIC functions isolated from the compiled browser module."
+    },
+    {
+      "path": "vendor/vip-state-machine-original.mjs",
+      "source": "https://historique-luckyjet.shop/assets/premium._game-yGdvscKg.js",
+      "sha256": "49649f43f8b0e9dac071f45132f52587451b485d61fbc4e59cfd38b310e80f43",
+      "description": "Public client window validation/state functions isolated from the compiled browser module."
+    }
+  ]
+}
