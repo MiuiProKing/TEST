@@ -1,0 +1,45 @@
+{
+  "verifiedAt": "2026-11-11T04:31:47.298Z",
+  "vipStatus": 200,
+  "analysisStatus": 200,
+  "sampleSize": 2000,
+  "fresh": true,
+  "dataCutoff": 1794371497142,
+  "avgRoundSeconds": 20.406824412206102,
+  "reconstruction": true,
+  "originalServerModel": false,
+  "thresholds": [
+    {
+      "target": 40,
+      "count": 47,
+      "probabilityNext3MinPct": 18.921958816306603,
+      "estimatedNextAt": 1794372051056.5,
+      "etaStatus": "experimental_median_eta"
+    },
+    {
+      "target": 200,
+      "count": 16,
+      "probabilityNext3MinPct": 6.8396889682819735,
+      "estimatedNextAt": 1794371606508,
+      "etaStatus": "experimental_median_eta"
+    },
+    {
+      "target": 500,
+      "count": 9,
+      "probabilityNext3MinPct": 3.900126002916536,
+      "estimatedNextAt": 1794372633598.5,
+      "etaStatus": "experimental_median_eta"
+    }
+  ],
+  "basic": {
+    "ready": true,
+    "reason": null,
+    "analyzed": 200,
+    "target": 3.08,
+    "score": 74,
+    "confidenceType": "heuristic_rule_score",
+    "estimatedAt": 1794371625387,
+    "windowMs": 150000,
+    "aiModelUsed": false
+  }
+}
